@@ -1,0 +1,70 @@
+// constants/options.js
+export const CATEGORY_OPTIONS = [
+    "Sofa",
+    "Meja",
+    "Kursi Makan",
+    "Lemari",
+    "Matras",
+    "Divan Sandaran",
+    "Bantal",
+    "Guling",
+    "Meja Tamu",
+    "Kursi Kantor",
+    "Meja Belajar",
+    "Lemari Plat",
+    "dan-lain-lain",
+];
+
+export const BRAND_OPTIONS_BY_CATEGORY = {
+    Sofa: ["Titov", "Saga", "Modis", "Vlux", "BnD", "Import", "Ayong", "Marco"],
+    Meja: ["Informa", "Olympic", "Custom"],
+    Kursi: ["iMeubel", "Informa", "Custom"],
+    Lemari: ["Louis Philip", "Berkat Jaya", "Inpro", "Nora / Quality", "Wisdom"],
+    Matras: ["KingKoil", "Helux", "Dunlopillo", "Atmosfi", "Florence", "Serta", "Lady Americana", "Simmons", "Elite", "Serenity", "Majufoam", "Modis", "Smartland", "Steel", "Ocean", "Bigkoil", "Bigland", "Custom"],
+    Aksesoris: ["iMeubel", "Informa", "Custom"],
+    Dekor: ["Informa", "Custom"],
+    Import: ["KSA", "YKC", "Achi", "Indotama", "Achi", "Lovu", "NG Furniture",]
+};
+
+
+export const BRAND_OPTIONS = [
+    "KingKoil",
+    "Helux",
+    "Dunlopillo",
+    "Atmosfi",
+    "Florence",
+    "Serta",
+    "Lady Americana",
+    "Simmons",
+    "Elite",
+    "Serenity",
+    "Majufoam",
+    "Atmosfi",
+    "Modis",
+    "Smartland",
+    "Steel",
+    "Ocean",
+    "Bigkoil",
+    "Bigland",
+    "Louis Philip",
+    "Berkat Jaya",
+    "Inpro",
+    "Nora / Quality",
+    "Wisdom",
+    "Device",
+    "Dove",
+    "Harley",
+    "Olympic",
+    "Import",
+    "KSA",
+    "YKC",
+    "Achi",
+    "Indotama",
+    "Achi",
+    "Lovu",
+    "NG Furniture",
+    "Titov",
+    "Custom",
+];
+
+export const OTHER_VALUE = "__OTHER__"; // sentinel for "Other..."

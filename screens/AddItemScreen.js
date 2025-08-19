@@ -1,5 +1,6 @@
 // screens/AddItemScreen.js
-import { addDoc, collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { Picker } from "@react-native-picker/picker";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -12,89 +13,90 @@ import {
   TextInput,
   View,
 } from "react-native";
+import {
+  OTHER_VALUE,
+  BRAND_OPTIONS_BY_CATEGORY as RAW_BRAND_OPTIONS_BY_CATEGORY,
+  CATEGORY_OPTIONS as RAW_CATEGORY_OPTIONS,
+} from "../constants/options";
 import { auth, db } from "../firebase";
 
-import { Picker } from "@react-native-picker/picker";
-import {
-  BRAND_OPTIONS_BY_CATEGORY,
-  CATEGORY_OPTIONS,
-  OTHER_VALUE,
-} from "../constants/options";
+// 🔒 Safe guards so iOS Picker never sees undefined
+const CATEGORY_OPTIONS = Array.isArray(RAW_CATEGORY_OPTIONS) ? RAW_CATEGORY_OPTIONS : [];
+const BRAND_OPTIONS_BY_CATEGORY =
+  RAW_BRAND_OPTIONS_BY_CATEGORY && typeof RAW_BRAND_OPTIONS_BY_CATEGORY === "object"
+    ? RAW_BRAND_OPTIONS_BY_CATEGORY
+    : {};
 
 export default function AddItemScreen({ route, navigation }) {
-  // role can be passed from Home screen; default to "staff" if not provided
   const passedRole = route?.params?.role || "staff";
   const isOwner = passedRole === "owner";
 
-  // -------------------------
-  // Form state
-  // -------------------------
+  // Core fields
   const [name, setName] = useState("");
-  const [barcode, setBarcode] = useState(""); // if you scan first, you can prefill this
-  const [quantity, setQuantity] = useState("");
+  const [quantity, setQuantity] = useState(""); // keep as string for TextInput
+  const [barcode, setBarcode] = useState("");   // optional; will auto-generate if blank
+
+  // Categorization
+  const [selectedCategory, setSelectedCategory] = useState(""); // always string
+  const [selectedBrand, setSelectedBrand] = useState("");       // always string
+  const [customBrand, setCustomBrand] = useState("");
+
+  // Extra details
   const [material, setMaterial] = useState("");
   const [sizes, setSizes] = useState("");
   const [colors, setColors] = useState("");
 
-  // Dependent dropdowns
-  const [selectedCategory, setSelectedCategory] = useState(""); // from CATEGORY_OPTIONS or OTHER_VALUE
-  const [selectedBrand, setSelectedBrand] = useState(""); // from BRAND_OPTIONS_BY_CATEGORY[selectedCategory] or OTHER_VALUE
-  const [customCategory, setCustomCategory] = useState(""); // shown when selectedCategory === OTHER_VALUE
-  const [customBrand, setCustomBrand] = useState(""); // shown when selectedBrand === OTHER_VALUE
-
-  // Owner-only fields
+  // Owner-only prices
   const [price, setPrice] = useState("");
   const [buyPrice, setBuyPrice] = useState("");
   const [sellPrice, setSellPrice] = useState("");
 
-  // When category changes, clear/validate brand
+  // Make sure brand stays valid when category changes
   useEffect(() => {
+    const allowed = Array.isArray(BRAND_OPTIONS_BY_CATEGORY[selectedCategory])
+      ? BRAND_OPTIONS_BY_CATEGORY[selectedCategory]
+      : [];
     if (!selectedCategory) {
       setSelectedBrand("");
+      setCustomBrand("");
       return;
     }
-    const allowed = BRAND_OPTIONS_BY_CATEGORY[selectedCategory] || [];
     if (!allowed.includes(selectedBrand) && selectedBrand !== OTHER_VALUE) {
       setSelectedBrand("");
+      setCustomBrand("");
     }
-  }, [selectedCategory, selectedBrand]);
+  }, [selectedCategory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submittingText = useMemo(() => "Add Item", []);
 
+  const generateBarcode = () => {
+    const ts = Date.now().toString(); // numeric, good for Code128/QR content
+    const rnd = Math.floor(100 + Math.random() * 900);
+    return `${ts}${rnd}`;
+  };
+
   const onSubmit = async () => {
     const qty = Number(quantity);
+    if (!name.trim()) return Alert.alert("Validation", "Name is required.");
+    if (Number.isNaN(qty) || qty < 0) return Alert.alert("Validation", "Quantity must be a non-negative number.");
 
-    // derive final values from dropdowns
-    const finalCategory =
-      selectedCategory === OTHER_VALUE
-        ? (customCategory.trim() || "")
-        : selectedCategory;
+    // Resolve brand value safely
+    let brandToSave = "";
+    if (selectedBrand === OTHER_VALUE) {
+      if (!customBrand.trim()) {
+        return Alert.alert("Validation", "Please type the brand name for 'Other…'");
+      }
+      brandToSave = customBrand.trim();
+    } else {
+      brandToSave = selectedBrand || "";
+    }
 
-    const finalBrand =
-      selectedBrand === OTHER_VALUE
-        ? (customBrand.trim() || "")
-        : selectedBrand;
-
-    // -------------------------
-    // Validation
-    // -------------------------
-    if (!name.trim()) return Alert.alert("Validation", "Name is required");
-    if (!finalCategory)
-      return Alert.alert("Validation", "Please select or enter a category.");
-    if (!finalBrand)
-      return Alert.alert("Validation", "Please select or enter a brand.");
-    if (isNaN(qty) || qty < 0)
-      return Alert.alert("Validation", "Quantity must be a non-negative number");
-
-    // -------------------------
-    // Build payload
-    // -------------------------
     const payload = {
       name: name.trim(),
-      brand: finalBrand,
-      barcode: barcode.trim() || null,
       quantity: qty,
-      category: finalCategory,
+      barcode: (barcode || "").trim() || null,
+      category: selectedCategory || null,
+      brand: brandToSave || null,
       material: material.trim() || null,
       sizes: sizes.trim() || null,
       colors: colors.trim() || null,
@@ -103,44 +105,39 @@ export default function AddItemScreen({ route, navigation }) {
       createdByEmail: auth.currentUser?.email || null,
     };
 
-    // Only owners can attach price fields (matches your security rules)
     if (isOwner) {
       const p = price === "" ? null : Number(price);
       const bp = buyPrice === "" ? null : Number(buyPrice);
       const sp = sellPrice === "" ? null : Number(sellPrice);
-
-      if (p !== null && (isNaN(p) || p < 0))
-        return Alert.alert("Validation", "Price must be a non-negative number");
-      if (bp !== null && (isNaN(bp) || bp < 0))
-        return Alert.alert("Validation", "Buy price must be a non-negative number");
-      if (sp !== null && (isNaN(sp) || sp < 0))
-        return Alert.alert("Validation", "Sell price must be a non-negative number");
-
+      if (p !== null && (Number.isNaN(p) || p < 0)) return Alert.alert("Validation", "Price must be a non-negative number.");
+      if (bp !== null && (Number.isNaN(bp) || bp < 0)) return Alert.alert("Validation", "Buy price must be a non-negative number.");
+      if (sp !== null && (Number.isNaN(sp) || sp < 0)) return Alert.alert("Validation", "Sell price must be a non-negative number.");
       payload.price = p;
       payload.buyPrice = bp;
       payload.sellPrice = sp;
     }
 
-    try {
-      // Use "products" unless your data lives in "inventory"
-      if (payload.barcode) {
-        // Put barcode as the document ID (helps scanning later)
-        await setDoc(doc(db, "products", payload.barcode), payload, { merge: true });
-      } else {
-        await addDoc(collection(db, "products"), payload);
-      }
+    const finalBarcode = (barcode || "").trim() || generateBarcode();
 
+    try {
+      await setDoc(doc(db, "products", finalBarcode), { ...payload, barcode: finalBarcode }, { merge: true });
       Alert.alert("Success", "Item added.");
-      navigation.goBack();
+      // As requested: go back to stock list (not print page)
+      navigation.replace("StockListScreen", { role: isOwner ? "owner" : "staff" });
     } catch (e) {
       console.error("Add item failed:", e);
       const msg =
         e?.code === "permission-denied"
-          ? "Permission denied. Staff cannot set price fields, and only owners can update/delete."
+          ? "Permission denied by Firestore rules. Staff cannot set price fields; only owners can update/delete."
           : e?.message || "Failed to add item.";
       Alert.alert("Error", msg);
     }
   };
+
+  // Safe brand list for the current category
+  const brandsForCategory = Array.isArray(BRAND_OPTIONS_BY_CATEGORY[selectedCategory])
+    ? BRAND_OPTIONS_BY_CATEGORY[selectedCategory]
+    : [];
 
   return (
     <KeyboardAvoidingView
@@ -151,44 +148,27 @@ export default function AddItemScreen({ route, navigation }) {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Add New Item ({isOwner ? "Owner" : "Staff"})</Text>
 
-        {/* Name */}
         <Text style={styles.label}>Name *</Text>
-        <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="Product name"
-        />
+        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Product name" />
 
-        {/* Category */}
-        <Text style={styles.label}>Category *</Text>
+        <Text style={styles.label}>Category</Text>
         <View style={styles.pickerWrapper}>
           <Picker
-            selectedValue={selectedCategory}
-            onValueChange={(v) => setSelectedCategory(v)}
+            selectedValue={selectedCategory ?? ""} // always a string
+            onValueChange={(v) => setSelectedCategory(String(v ?? ""))}
           >
             <Picker.Item label="-- Select Category --" value="" />
             {CATEGORY_OPTIONS.map((c) => (
-              <Picker.Item key={c} label={c} value={c} />
+              <Picker.Item key={String(c)} label={String(c)} value={String(c)} />
             ))}
-            <Picker.Item label="Other…" value={OTHER_VALUE} />
           </Picker>
         </View>
-        {selectedCategory === OTHER_VALUE && (
-          <TextInput
-            style={styles.input}
-            placeholder="Type a new category"
-            value={customCategory}
-            onChangeText={setCustomCategory}
-          />
-        )}
 
-        {/* Brand (depends on Category) */}
-        <Text style={styles.label}>Brand *</Text>
+        <Text style={styles.label}>Brand</Text>
         <View style={styles.pickerWrapper}>
           <Picker
-            selectedValue={selectedBrand}
-            onValueChange={(v) => setSelectedBrand(v)}
+            selectedValue={selectedBrand ?? ""}
+            onValueChange={(v) => setSelectedBrand(String(v ?? ""))}
             enabled={!!selectedCategory}
           >
             <Picker.Item
@@ -196,31 +176,34 @@ export default function AddItemScreen({ route, navigation }) {
               value=""
             />
             {selectedCategory &&
-              (BRAND_OPTIONS_BY_CATEGORY[selectedCategory] || []).map((b) => (
-                <Picker.Item key={b} label={b} value={b} />
+              brandsForCategory.map((b) => (
+                <Picker.Item key={String(b)} label={String(b)} value={String(b)} />
               ))}
             {selectedCategory && <Picker.Item label="Other…" value={OTHER_VALUE} />}
           </Picker>
         </View>
+
         {selectedBrand === OTHER_VALUE && (
-          <TextInput
-            style={styles.input}
-            placeholder="Type a new brand"
-            value={customBrand}
-            onChangeText={setCustomBrand}
-          />
+          <>
+            <Text style={styles.label}>Type Brand</Text>
+            <TextInput
+              style={styles.input}
+              value={customBrand}
+              onChangeText={setCustomBrand}
+              placeholder="Your brand name"
+            />
+          </>
         )}
 
-        {/* Barcode */}
-        <Text style={styles.label}>Barcode</Text>
+        <Text style={styles.label}>Barcode (leave blank to auto-generate)</Text>
         <TextInput
-          style={styles.input}
+          style={styles.inputMono}
           value={barcode}
           onChangeText={setBarcode}
-          placeholder="Scan or type barcode"
+          placeholder="e.g. 202508181234"
+          autoCapitalize="none"
         />
 
-        {/* Quantity */}
         <Text style={styles.label}>Quantity *</Text>
         <TextInput
           style={styles.input}
@@ -230,64 +213,24 @@ export default function AddItemScreen({ route, navigation }) {
           keyboardType="numeric"
         />
 
-        {/* Optional details */}
         <Text style={styles.label}>Material</Text>
-        <TextInput
-          style={styles.input}
-          value={material}
-          onChangeText={setMaterial}
-          placeholder="Material"
-        />
+        <TextInput style={styles.input} value={material} onChangeText={setMaterial} placeholder="Material" />
 
         <Text style={styles.label}>Sizes</Text>
-        <TextInput
-          style={styles.input}
-          value={sizes}
-          onChangeText={setSizes}
-          placeholder="e.g. 200x160"
-        />
+        <TextInput style={styles.input} value={sizes} onChangeText={setSizes} placeholder="e.g. 200x160" />
 
         <Text style={styles.label}>Colors</Text>
-        <TextInput
-          style={styles.input}
-          value={colors}
-          onChangeText={setColors}
-          placeholder="e.g. Walnut, Black"
-        />
+        <TextInput style={styles.input} value={colors} onChangeText={setColors} placeholder="e.g. Walnut, Black" />
 
-        {/* Owner-only price section */}
         {isOwner && (
           <>
-            <Text style={[styles.sectionTitle, { marginTop: 14 }]}>
-              Owner Prices (hidden from staff)
-            </Text>
-
+            <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Owner Prices (hidden from staff)</Text>
             <Text style={styles.label}>Price</Text>
-            <TextInput
-              style={styles.input}
-              value={price}
-              onChangeText={setPrice}
-              placeholder="e.g. 1500000"
-              keyboardType="numeric"
-            />
-
+            <TextInput style={styles.input} value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="e.g. 1500000" />
             <Text style={styles.label}>Buy Price</Text>
-            <TextInput
-              style={styles.input}
-              value={buyPrice}
-              onChangeText={setBuyPrice}
-              placeholder="e.g. 1000000"
-              keyboardType="numeric"
-            />
-
+            <TextInput style={styles.input} value={buyPrice} onChangeText={setBuyPrice} keyboardType="numeric" placeholder="e.g. 1000000" />
             <Text style={styles.label}>Sell Price</Text>
-            <TextInput
-              style={styles.input}
-              value={sellPrice}
-              onChangeText={setSellPrice}
-              placeholder="e.g. 1800000"
-              keyboardType="numeric"
-            />
+            <TextInput style={styles.input} value={sellPrice} onChangeText={setSellPrice} keyboardType="numeric" placeholder="e.g. 1800000" />
           </>
         )}
 
@@ -304,17 +247,13 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: "700" },
   label: { fontWeight: "600", marginTop: 10, marginBottom: 6 },
   input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    backgroundColor: "#fff",
+    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fff",
+  },
+  inputMono: {
+    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fff",
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   pickerWrapper: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: "#fff",
+    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", backgroundColor: "#fff",
   },
 });

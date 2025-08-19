@@ -1,65 +1,69 @@
-import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { useState } from 'react';
-import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useAuth } from '../AuthContext';
-import { db } from '../firebase';
+// screens/LogOutgoingScreen.js
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { useState } from "react";
+import { Alert, Button, StyleSheet, Text, TextInput, View } from "react-native";
+import { auth, db } from "../firebase";
 
 export default function LogOutgoingScreen({ route, navigation }) {
-  const { productId } = route.params;
-  const { user } = useAuth(); // role, name, uid
-  const [quantity, setQuantity] = useState('');
-  const [clientName, setClientName] = useState('');
+  const productId = route?.params?.productId || route?.params?.product?.id;
+  const user = auth.currentUser;
+  const staffName = user?.email || "Unknown User";
+
+  const [quantity, setQuantity] = useState("");
+  const [clientName, setClientName] = useState("");
 
   const handleOutgoing = async () => {
-    if (!quantity || isNaN(quantity) || Number(quantity) <= 0) {
-      Alert.alert('Invalid Quantity', 'Please enter a valid number.');
+    const qty = Number(quantity);
+    if (!qty || isNaN(qty) || qty <= 0) {
+      Alert.alert("Invalid Quantity", "Please enter a valid number.");
       return;
     }
     if (!clientName.trim()) {
-      Alert.alert('Missing Client Name', 'Please enter the client name.');
+      Alert.alert("Missing Client Name", "Please enter the client name.");
+      return;
+    }
+    if (!productId) {
+      Alert.alert("Error", "Missing product id.");
       return;
     }
 
     try {
-      const productRef = doc(db, 'products', productId);
-      const productSnap = await getDoc(productRef);
+      const productRef = doc(db, "products", String(productId));
+      const snap = await getDoc(productRef);
 
-      if (!productSnap.exists()) {
-        Alert.alert('Error', 'Product not found.');
+      if (!snap.exists()) {
+        Alert.alert("Error", "Product not found.");
         return;
       }
 
-      const productData = productSnap.data();
-      const currentStock = productData.stock || 0;
+      const data = snap.data();
+      const current = data.quantity ?? data.stock ?? 0;
 
-      if (Number(quantity) > currentStock) {
-        Alert.alert('Not Enough Stock', 'You cannot deduct more than available.');
+      if (qty > current) {
+        Alert.alert("Not Enough Stock", "You cannot deduct more than available.");
         return;
       }
 
-      // Update stock
       await updateDoc(productRef, {
-        stock: currentStock - Number(quantity)
+        quantity: current - qty,
+        updatedAt: serverTimestamp(),
       });
 
-      // Log the outgoing transaction
-      const logsRef = collection(db, 'stockLogs');
-      await addDoc(logsRef, {
+      await addDoc(collection(db, 'stockLogs'), {
         productId,
-        productName: productData.name,
         type: 'outgoing',
-        quantity: Number(quantity),
+        quantity,
         clientName,
-        handledBy: user.name || 'Unknown User',
-        handledById: user.uid,
+        handledBy: displayNameOrEmail,
+        handledById: auth.currentUser.uid,
         timestamp: serverTimestamp()
       });
 
-      Alert.alert('Success', 'Outgoing stock logged.');
+      Alert.alert("Success", "Outgoing stock logged.");
       navigation.goBack();
-    } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Failed to log outgoing stock.');
+    } catch (e) {
+      console.error("Outgoing error:", e);
+      Alert.alert("Error", e?.message || "Failed to log outgoing stock.");
     }
   };
 
@@ -80,26 +84,16 @@ export default function LogOutgoingScreen({ route, navigation }) {
         onChangeText={setClientName}
         placeholder="Enter client name"
       />
+      <View style={{ height: 10 }} />
       <Button title="Log Outgoing Stock" onPress={handleOutgoing} />
+      <View style={{ height: 8 }} />
+      <Button title="Back" onPress={() => navigation.goBack()} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: '#fff'
-  },
-  label: {
-    fontWeight: 'bold',
-    marginTop: 10
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5
-  }
+  container: { flex: 1, padding: 20, backgroundColor: "#fff" },
+  label: { fontWeight: "bold", marginTop: 10 },
+  input: { borderWidth: 1, borderColor: "#ccc", padding: 10, borderRadius: 5, marginTop: 5 },
 });

@@ -1,125 +1,81 @@
-import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useAuth } from '../AuthContext';
-import { db } from '../firebase';
+// screens/LogIncomingScreen.js
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { useState } from "react";
+import { Alert, Button, StyleSheet, Text, TextInput, View } from "react-native";
+import { auth, db } from "../firebase";
 
 export default function LogIncomingScreen({ route, navigation }) {
-  const { productId } = route.params;
-  const { user } = useAuth();
-  const [product, setProduct] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [quantity, setQuantity] = useState('');
+  // Expect route.params: { productId } or { product: { id, ... } }
+  const productId = route?.params?.productId || route?.params?.product?.id;
+  const user = auth.currentUser; // signed-in user
+  const staffName = user?.email || "Unknown User";
 
-  useEffect(() => {
-    const fetchProduct = async () => {
-      try {
-        const productRef = doc(db, 'products', productId);
-        const productSnap = await getDoc(productRef);
-        if (productSnap.exists()) {
-          setProduct({ id: productSnap.id, ...productSnap.data() });
-        } else {
-          console.log('Product not found.');
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const [quantity, setQuantity] = useState("");
 
-    fetchProduct();
-  }, [productId]);
-
-  const handleLogIncoming = async () => {
-    const qty = parseInt(quantity, 10);
-    if (isNaN(qty) || qty <= 0) {
-      Alert.alert('Error', 'Please enter a valid quantity.');
+  const handleIncoming = async () => {
+    const qty = Number(quantity);
+    if (!qty || isNaN(qty) || qty <= 0) {
+      Alert.alert("Invalid quantity", "Enter a positive number.");
+      return;
+    }
+    if (!productId) {
+      Alert.alert("Error", "Missing product id.");
       return;
     }
 
     try {
-      const productRef = doc(db, 'products', productId);
+      const productRef = doc(db, "products", String(productId));
+      const snap = await getDoc(productRef);
+      if (!snap.exists()) {
+        Alert.alert("Error", "Product not found.");
+        return;
+      }
+      const data = snap.data();
+      const current = data.quantity ?? data.stock ?? 0;
 
-      // Update stock
       await updateDoc(productRef, {
-        stock: (product.stock || 0) + qty
+        quantity: current + qty,
+        updatedAt: serverTimestamp(),
       });
 
-      // Log the incoming stock
-      const logsRef = collection(db, 'stockLogs');
-      await addDoc(logsRef, {
-        productId,
-        productName: product.name,
+      await addDoc(collection(db, "stockLogs"), {
+        productId: String(productId),
+        productName: data.name || "",
+        type: "incoming",
         quantity: qty,
-        type: 'incoming',
-        handledBy: user.email,
-        timestamp: serverTimestamp()
+        handledBy: staffName,
+        handledById: user?.uid || null,
+        timestamp: serverTimestamp(),
       });
 
-      Alert.alert('Success', 'Stock added successfully.');
+      Alert.alert("Success", "Incoming stock logged.");
       navigation.goBack();
-    } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Failed to log incoming stock.');
+    } catch (e) {
+      console.error("Incoming error:", e);
+      Alert.alert("Error", e?.message || "Failed to log incoming stock.");
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
-  if (!product) {
-    return (
-      <View style={styles.center}>
-        <Text>Product not found</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Incoming Stock for {product.name}</Text>
-      <Text>Current Stock: {product.stock || 0}</Text>
-
+      <Text style={styles.label}>Quantity</Text>
       <TextInput
         style={styles.input}
-        placeholder="Enter quantity"
-        keyboardType="numeric"
         value={quantity}
         onChangeText={setQuantity}
+        keyboardType="numeric"
+        placeholder="Enter quantity"
       />
-
-      <Button title="Add Stock" color="green" onPress={handleLogIncoming} />
+      <View style={{ height: 10 }} />
+      <Button title="Log Incoming Stock" onPress={handleIncoming} />
+      <View style={{ height: 8 }} />
+      <Button title="Back" onPress={() => navigation.goBack()} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: '#fff'
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    marginVertical: 10,
-    borderRadius: 5
-  }
+  container: { flex: 1, padding: 20, backgroundColor: "#fff" },
+  label: { fontWeight: "bold", marginTop: 10 },
+  input: { borderWidth: 1, borderColor: "#ccc", padding: 10, borderRadius: 5, marginTop: 5 },
 });

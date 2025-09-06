@@ -1,12 +1,25 @@
+// OwnerHomeScreen.js
 import { Ionicons } from "@expo/vector-icons";
+import { signOut } from "firebase/auth";
 import { ScrollView, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { auth } from "../firebase";
 
 export default function OwnerHomeScreen({ navigation }) {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Owner Dashboard</Text>
 
-      {/* View / Manage Stock */}
+      <TouchableOpacity
+        style={[styles.buttonRed, { backgroundColor: "#455A64" }]}
+        onPress={async () => {
+          try { await signOut(auth); navigation.replace("Login"); }
+          catch (e) { console.log("signout error", e); }
+        }}
+      >
+        <Ionicons name="log-out-outline" size={20} color="#fff" />
+        <Text style={styles.buttonText}>Sign Out</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
         style={styles.buttonGreen}
         onPress={() => navigation.navigate("StockListScreen", { role: "owner" })}
@@ -16,15 +29,6 @@ export default function OwnerHomeScreen({ navigation }) {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={styles.buttonGreen}
-        onPress={() => navigation.navigate("BarcodeTestScreen")}
-      >
-        <Ionicons name="cube-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>View / Manage Stock</Text>
-      </TouchableOpacity>
-      
-      {/* Add Product */}
-      <TouchableOpacity
         style={styles.buttonBlue}
         onPress={() => navigation.navigate("AddItemScreen", { role: "owner" })}
       >
@@ -32,16 +36,15 @@ export default function OwnerHomeScreen({ navigation }) {
         <Text style={styles.buttonText}>Add New Product</Text>
       </TouchableOpacity>
 
-      {/* Incoming Stock (via barcode) */}
+      {/* NEW: Create Master Product (owner catalog) */}
       <TouchableOpacity
         style={styles.buttonPurple}
-        onPress={() => navigation.navigate("ScanIncomingScreen", { role: "owner" })}
+        onPress={() => navigation.navigate("AddMasterProductScreen", { role: "owner" })}
       >
-        <Ionicons name="barcode-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Scan Incoming Stock</Text>
+        <Ionicons name="albums-outline" size={20} color="#fff" />
+        <Text style={styles.buttonText}>Create Master Product</Text>
       </TouchableOpacity>
 
-      {/* Outgoing Stock (via barcode) */}
       <TouchableOpacity
         style={styles.buttonOrange}
         onPress={() => navigation.navigate("ScanOutgoingScreen", { role: "owner" })}
@@ -50,13 +53,12 @@ export default function OwnerHomeScreen({ navigation }) {
         <Text style={styles.buttonText}>Scan Outgoing Stock</Text>
       </TouchableOpacity>
 
-      {/* Owner-only sections */}
       <TouchableOpacity
         style={styles.buttonRed}
-        onPress={() => navigation.navigate("OrdersScreen")}
+        onPress={() => navigation.navigate("StockLogsScreen")}
       >
-        <Ionicons name="receipt-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Orders</Text>
+        <Ionicons name="list-outline" size={20} color="#fff" />
+        <Text style={styles.buttonText}>Stock Logs</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -73,45 +75,10 @@ export default function OwnerHomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { padding: 20 },
   title: { fontSize: 24, fontWeight: "bold", marginBottom: 20 },
-  buttonGreen: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#4CAF50",
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  buttonBlue: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#2196F3",
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  buttonPurple: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#9C27B0",
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  buttonOrange: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FF9800",
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  buttonRed: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F44336",
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
+  buttonGreen: { flexDirection: "row", alignItems: "center", backgroundColor: "#4CAF50", padding: 15, borderRadius: 8, marginBottom: 10 },
+  buttonBlue: { flexDirection: "row", alignItems: "center", backgroundColor: "#2196F3", padding: 15, borderRadius: 8, marginBottom: 10 },
+  buttonPurple: { flexDirection: "row", alignItems: "center", backgroundColor: "#9C27B0", padding: 15, borderRadius: 8, marginBottom: 10 },
+  buttonOrange: { flexDirection: "row", alignItems: "center", backgroundColor: "#FF9800", padding: 15, borderRadius: 8, marginBottom: 10 },
+  buttonRed: { flexDirection: "row", alignItems: "center", backgroundColor: "#F44336", padding: 15, borderRadius: 8, marginBottom: 10 },
   buttonText: { color: "#fff", fontSize: 16, marginLeft: 10 },
 });

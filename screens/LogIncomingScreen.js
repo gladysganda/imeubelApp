@@ -1,54 +1,93 @@
-// screens/LogIncomingScreen.js
-import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { useState } from "react";
-import { Alert, Button, StyleSheet, Text, TextInput, View } from "react-native";
-import { auth, db } from "../firebase";
+// screens/LogIncomingScreen.js  (only additions)
+import ProductSearchPicker from "../components/ProductSearchPicker";
 
 export default function LogIncomingScreen({ route, navigation }) {
-  // Expect route.params: { productId } or { product: { id, ... } }
-  const productId = route?.params?.productId || route?.params?.product?.id;
-  const user = auth.currentUser; // signed-in user
-  const staffName = user?.email || "Unknown User";
+  const passed = route?.params?.product || null;
+  const productId = route?.params?.productId || passed?.barcode || passed?.id;
+  const staffEmail = auth.currentUser?.email || "Unknown User";
 
   const [quantity, setQuantity] = useState("");
+  const [supplierName, setSupplierName] = useState("");
+  const [note, setNote] = useState("");
+  const [pick, setPick] = useState(null); // when no productId passed
+
+  const usingPicker = !productId;
 
   const handleIncoming = async () => {
     const qty = Number(quantity);
-    if (!qty || isNaN(qty) || qty <= 0) {
-      Alert.alert("Invalid quantity", "Enter a positive number.");
-      return;
-    }
-    if (!productId) {
-      Alert.alert("Error", "Missing product id.");
-      return;
-    }
+    if (!qty || Number.isNaN(qty) || qty <= 0) return Alert.alert("Invalid quantity","Enter a positive number.");
 
     try {
-      const productRef = doc(db, "products", String(productId));
-      const snap = await getDoc(productRef);
-      if (!snap.exists()) {
-        Alert.alert("Error", "Product not found.");
+      // If productId passed → keep your old logic
+      if (!usingPicker) {
+        const productRef = doc(db, "products", String(productId));
+        const snap = await getDoc(productRef);
+        if (!snap.exists()) return Alert.alert("Error","Product not found.");
+        const data = snap.data() || {};
+        const current = Number(data.quantity ?? data.stock ?? 0) || 0;
+
+        await updateDoc(productRef, { quantity: current + qty, updatedAt: serverTimestamp() });
+
+        await addDoc(collection(db, "stockLogs"), {
+          type: "incoming",
+          productId: String(productId),
+          productName: data.name || "",
+          category: data.category || null,
+          brand: data.brand || null,
+          sizes: data.sizes || null,
+          quantity: qty,
+          staffName: staffEmail,
+          handledById: auth.currentUser?.uid || null,
+          handledByEmail: staffEmail,
+          supplierName: supplierName.trim() || null,
+          note: note.trim() || null,
+          timestamp: serverTimestamp(),
+        });
+
+        Alert.alert("Success","Incoming stock logged.");
+        navigation.goBack();
         return;
       }
-      const data = snap.data();
-      const current = data.quantity ?? data.stock ?? 0;
 
-      await updateDoc(productRef, {
-        quantity: current + qty,
+      // No product passed → use picker choice, create/increment products doc
+      if (!pick || !pick.selectedSize) return Alert.alert("Missing","Pick product and size.");
+
+      const chosenBarcode = pick?.barcodesBySize?.[pick.selectedSize] || `${Date.now()}`;
+      const pRef = doc(db, "products", String(chosenBarcode));
+      const ps = await getDoc(pRef);
+      const base = {
+        name: pick.displayName,
+        brand: pick.brand,
+        category: pick.category,
+        sizes: pick.selectedSize,
+        barcode: String(chosenBarcode),
         updatedAt: serverTimestamp(),
-      });
+        updatedBy: auth.currentUser?.uid || null,
+        updatedByEmail: staffEmail,
+      };
+      if (ps.exists()) {
+        await updateDoc(pRef, { ...base, quantity: increment(qty) });
+      } else {
+        await setDoc(pRef, { ...base, quantity: qty, createdAt: serverTimestamp() });
+      }
 
       await addDoc(collection(db, "stockLogs"), {
-        productId: String(productId),
-        productName: data.name || "",
         type: "incoming",
+        productId: String(chosenBarcode),
+        productName: base.name,
+        category: base.category,
+        brand: base.brand,
+        sizes: base.sizes,
         quantity: qty,
-        handledBy: staffName,
-        handledById: user?.uid || null,
+        staffName: staffEmail,
+        handledById: auth.currentUser?.uid || null,
+        handledByEmail: staffEmail,
+        supplierName: supplierName.trim() || null,
+        note: note.trim() || null,
         timestamp: serverTimestamp(),
       });
 
-      Alert.alert("Success", "Incoming stock logged.");
+      Alert.alert("Success","Incoming stock logged.");
       navigation.goBack();
     } catch (e) {
       console.error("Incoming error:", e);
@@ -58,14 +97,21 @@ export default function LogIncomingScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
+      {usingPicker ? (
+        <>
+          <ProductSearchPicker value={pick} onChange={setPick} />
+        </>
+      ) : null}
+
       <Text style={styles.label}>Quantity</Text>
-      <TextInput
-        style={styles.input}
-        value={quantity}
-        onChangeText={setQuantity}
-        keyboardType="numeric"
-        placeholder="Enter quantity"
-      />
+      <TextInput style={styles.input} value={quantity} onChangeText={setQuantity} keyboardType="numeric" placeholder="Enter quantity" />
+
+      <Text style={styles.label}>Supplier (optional)</Text>
+      <TextInput style={styles.input} value={supplierName} onChangeText={setSupplierName} placeholder="e.g. PT. Supplier Maju" />
+
+      <Text style={styles.label}>Note (optional)</Text>
+      <TextInput style={[styles.input, { height: 80 }]} value={note} onChangeText={setNote} placeholder="Damage, missing parts, box torn, etc." multiline />
+
       <View style={{ height: 10 }} />
       <Button title="Log Incoming Stock" onPress={handleIncoming} />
       <View style={{ height: 8 }} />
@@ -73,9 +119,3 @@ export default function LogIncomingScreen({ route, navigation }) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#fff" },
-  label: { fontWeight: "bold", marginTop: 10 },
-  input: { borderWidth: 1, borderColor: "#ccc", padding: 10, borderRadius: 5, marginTop: 5 },
-});

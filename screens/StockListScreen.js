@@ -2,21 +2,26 @@
 import { Picker } from "@react-native-picker/picker";
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActionSheetIOS, ActivityIndicator, Alert, FlatList, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { BRAND_OPTIONS_BY_CATEGORY, CATEGORY_OPTIONS } from "../constants/options";
 import { auth, db } from "../firebase";
 
-/** ----- Small helper: SafeSelect -----
- * iOS: uses ActionSheet (no Picker crash)
- * Android/Web: uses Picker
- */
-
+/** Confirm helper: Alert (native) / window.confirm (web) */
 const platformConfirm = async (title, message) => {
   if (Platform.OS === "web") {
-    // Simple blocking confirm on web
     return window.confirm(`${title}\n\n${message}`);
   }
-  // On native, emulate Alert with a Promise
   return new Promise((resolve) => {
     Alert.alert(title, message, [
       { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
@@ -25,8 +30,12 @@ const platformConfirm = async (title, message) => {
   });
 };
 
+/** Cross‑platform selector:
+ * iOS → ActionSheet (avoids weird picker behavior)
+ * Android/Web → Picker
+ */
 function SafeSelect({ label, value, onChange, options, placeholder = "Select...", enabled = true }) {
-  const safeValue = value ?? ""; // never undefined
+  const safeValue = value ?? "";
 
   if (!enabled) {
     return (
@@ -37,16 +46,15 @@ function SafeSelect({ label, value, onChange, options, placeholder = "Select..."
   }
 
   if (Platform.OS === "ios") {
-    const currentLabel =
-      (options.find((o) => o.value === safeValue)?.label) || (safeValue ? safeValue : placeholder);
+    const currentLabel = options.find((o) => o.value === safeValue)?.label || (safeValue ? safeValue : placeholder);
 
     const openSheet = () => {
       const sheetOptions = [placeholder, ...options.map((o) => o.label), "Cancel"];
       ActionSheetIOS.showActionSheetWithOptions(
         { options: sheetOptions, cancelButtonIndex: sheetOptions.length - 1 },
         (idx) => {
-          if (idx === 0 || idx === sheetOptions.length - 1) return; // placeholder or cancel
-          const chosen = options[idx - 1]; // because placeholder at 0
+          if (idx === 0 || idx === sheetOptions.length - 1) return;
+          const chosen = options[idx - 1];
           if (chosen) onChange(chosen.value);
         }
       );
@@ -75,7 +83,7 @@ function SafeSelect({ label, value, onChange, options, placeholder = "Select..."
 }
 
 export default function StockListScreen({ route, navigation }) {
-  const role = route?.params?.role || "staff"; // "owner" | "staff"
+  const role = route?.params?.role || "staff";
   const isOwner = role === "owner";
 
   const [loading, setLoading] = useState(true);
@@ -87,7 +95,7 @@ export default function StockListScreen({ route, navigation }) {
   const [brandFilter, setBrandFilter] = useState("");
   const [search, setSearch] = useState("");
 
-  // sheet selection
+  // sheet selection (owner only)
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set()); // keys like "${__col}:${id}"
 
@@ -151,9 +159,9 @@ export default function StockListScreen({ route, navigation }) {
     return arr.map((b) => ({ label: b, value: b }));
   }, [categoryFilter]);
 
-  // filtering + search
+  // filtering + search (null-safe key)
   const filteredItems = useMemo(() => {
-    const key = (s) => (s || "").toString().toLowerCase();
+    const key = (s) => (s ?? "").toString().toLowerCase();
     const q = key(search);
 
     return items.filter((it) => {
@@ -191,16 +199,14 @@ export default function StockListScreen({ route, navigation }) {
           Alert.alert("Not found", `No document at /${itemCol}/${id}`);
           return;
         }
-        nameForMsg = snap.data()?.name || snap.data()?.product || id;
+        const data = snap.data() || {};
+        nameForMsg = data.name || data.product || id;
       } catch (readErr) {
         console.log("[DELETE READ ERROR]", readErr);
       }
 
-      // Confirm (web uses window.confirm)
-      const ok = await platformConfirm(
-        "Delete",
-        `Delete "${nameForMsg}"?\n\nPath: /${itemCol}/${id}`
-      );
+      // Confirm
+      const ok = await platformConfirm("Delete", `Delete "${nameForMsg}"?\n\nPath: /${itemCol}/${id}`);
       if (!ok) return;
 
       // Perform delete
@@ -227,6 +233,7 @@ export default function StockListScreen({ route, navigation }) {
       Alert.alert("Delete failed", msg);
     }
   };
+
   // ----- QR actions -----
   const viewQr = (item) => {
     if (!isOwner) return;
@@ -237,19 +244,21 @@ export default function StockListScreen({ route, navigation }) {
         sizes: item.sizes || "",
         brand: item.brand || "",
       },
-      immediatePrint: false,
+      immediatePrint: false, // just preview; or true to auto-print
     });
   };
 
   const printSingle = (item) => {
-    if (!isOwner) return;
+    // Staff and owner can both print
+    const productPayload = {
+      barcode: item.barcode || item.id,
+      name: item.name || item.product || "",
+      sizes: item.sizes || "",
+      brand: item.brand || "",
+    };
+
     navigation.navigate("PrintLabelScreen", {
-      product: {
-        barcode: item.barcode || item.id,
-        name: item.name || item.product || "",
-        sizes: item.sizes || "",
-        brand: item.brand || "",
-      },
+      product: productPayload,
       immediatePrint: true,
     });
   };
@@ -287,12 +296,9 @@ export default function StockListScreen({ route, navigation }) {
   };
 
   const renderItem = ({ item }) => {
-    const inSelection = selectionMode && isOwner; // selection mode only relevant for owner
+    const inSelection = selectionMode && isOwner; // selection mode only for owner
     const key = `${item.__col}:${item.id}`;
     const checked = selectedIds.has(key);
-
-    const quantity =
-      item.quantity != null ? item.quantity : item.stock != null ? item.stock : 0;
 
     return (
       <TouchableOpacity
@@ -305,15 +311,17 @@ export default function StockListScreen({ route, navigation }) {
         ]}
       >
         <Text style={styles.name}>{item.name || item.product || "Unnamed Product"}</Text>
-        <Text>Stock: {quantity}</Text>
+        <Text>Stock: {item.quantity ?? item.stock ?? 0}</Text>
         {item.category ? <Text>Category: {item.category}</Text> : null}
         {item.brand ? <Text>Brand: {item.brand}</Text> : null}
+        {item.sizes ? <Text>Sizes: {item.sizes}</Text> : null}
         {item.material ? <Text>Material: {item.material}</Text> : null}
+        {item.colors ? <Text>Colors: {item.colors}</Text> : null}
 
         <View style={styles.actions}>
-          {/* Owner QR actions */}
-          {isOwner && (
+          {isOwner ? (
             <>
+              {/* Owner: full QR controls */}
               <TouchableOpacity style={styles.qrButton} onPress={() => viewQr(item)}>
                 <Text style={styles.buttonText}>View QR</Text>
               </TouchableOpacity>
@@ -330,12 +338,8 @@ export default function StockListScreen({ route, navigation }) {
               >
                 <Text style={styles.buttonText}>Add to Sheet</Text>
               </TouchableOpacity>
-            </>
-          )}
 
-          {/* Owner edit/delete */}
-          {isOwner && (
-            <>
+              {/* Owner: edit/delete */}
               <TouchableOpacity
                 style={styles.editButton}
                 onPress={() =>
@@ -353,6 +357,13 @@ export default function StockListScreen({ route, navigation }) {
                 onPress={() => handleDelete(item.id, item.__col)}
               >
                 <Text style={styles.buttonText}>Delete</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              {/* Staff: print-only */}
+              <TouchableOpacity style={styles.qrButton} onPress={() => printSingle(item)}>
+                <Text style={styles.buttonText}>Print QR</Text>
               </TouchableOpacity>
             </>
           )}
@@ -431,7 +442,7 @@ export default function StockListScreen({ route, navigation }) {
       {/* List */}
       <FlatList
         data={filteredItems}
-        keyExtractor={(i) => i.id}
+        keyExtractor={(i) => String(i.id)}
         renderItem={renderItem}
         contentContainerStyle={{ paddingBottom: isOwner && selectionMode ? 70 : 12 }}
       />

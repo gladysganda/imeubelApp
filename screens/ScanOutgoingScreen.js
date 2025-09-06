@@ -1,4 +1,6 @@
 // screens/ScanOutgoingScreen.js
+const STAFF_NAMES = ["Annie", "Riri", "Yuni", "Agus", "Salman"];
+import { Picker } from "@react-native-picker/picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
@@ -8,6 +10,8 @@ import { logOutgoingStock } from "../utils/logs";
 
 export default function ScanOutgoingScreen({ route, navigation }) {
   const role = route?.params?.role || "staff";
+  const [clientAddress, setClientAddress] = useState("");
+  const [staffName, setStaffName] = useState(STAFF_NAMES[0]);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -53,11 +57,12 @@ export default function ScanOutgoingScreen({ route, navigation }) {
     setProduct(null);
     setQty("");
     setClientName("");
+    setClientAddress("");
   };
 
   const confirmOutgoing = async () => {
     const n = Number(qty);
-    if (!n || isNaN(n) || n <= 0) {
+    if (!n || Number.isNaN(n) || n <= 0) {
       Alert.alert("Invalid quantity", "Enter a positive number.");
       return;
     }
@@ -72,17 +77,14 @@ export default function ScanOutgoingScreen({ route, navigation }) {
         Alert.alert("Error", "Product not found anymore.");
         return;
       }
-      const curr = snap.data()?.quantity ?? 0;
+      const curr = Number(snap.data()?.quantity ?? 0) || 0;
       if (n > curr) {
         Alert.alert("Not enough stock", `Available: ${curr}`);
         return;
       }
 
-      // Only fields allowed by rules for staff
-      const newQty = curr - n;
-
       await updateDoc(ref, {
-        quantity: newQty,
+        quantity: curr - n,
         lastUpdatedAt: serverTimestamp(),
         lastUpdatedBy: auth.currentUser?.uid || null,
         lastUpdatedByEmail: auth.currentUser?.email || null,
@@ -93,6 +95,8 @@ export default function ScanOutgoingScreen({ route, navigation }) {
         productName: snap.data()?.name || "",
         quantity: n,
         clientName: clientName.trim(),
+        clientAddress: clientAddress.trim(),
+        staffName,
         handledById: auth.currentUser?.uid || null,
         handledByEmail: auth.currentUser?.email || null,
         note: `Outgoing via scanner (${role})`,
@@ -130,9 +134,7 @@ export default function ScanOutgoingScreen({ route, navigation }) {
           style={StyleSheet.absoluteFillObject}
           facing="back"
           onBarcodeScanned={onBarcodeScanned}
-          barcodeScannerSettings={{
-            barcodeTypes: ["qr", "ean13", "ean8", "code128", "upc_a", "upc_e"],
-          }}
+          barcodeScannerSettings={{ barcodeTypes: ["qr", "ean13", "ean8", "code128", "upc_a", "upc_e"] }}
         />
       ) : (
         <View style={styles.sheet}>
@@ -146,21 +148,22 @@ export default function ScanOutgoingScreen({ route, navigation }) {
               <Text>Stock: {product.quantity ?? 0}</Text>
 
               <Text style={styles.label}>Quantity to deduct</Text>
-              <TextInput
-                style={styles.input}
-                value={qty}
-                onChangeText={setQty}
-                placeholder="e.g. 1"
-                keyboardType="numeric"
-              />
+              <TextInput style={styles.input} value={qty} onChangeText={setQty} placeholder="e.g. 1" keyboardType="numeric" />
 
               <Text style={styles.label}>Client name</Text>
-              <TextInput
-                style={styles.input}
-                value={clientName}
-                onChangeText={setClientName}
-                placeholder="e.g. John Doe"
-              />
+              <TextInput style={styles.input} value={clientName} onChangeText={setClientName} placeholder="e.g. John Doe" />
+
+              <Text style={styles.label}>Client address</Text>
+              <TextInput style={styles.input} value={clientAddress} onChangeText={setClientAddress} placeholder="Address" />
+
+              <Text style={styles.label}>Staff Name</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker selectedValue={staffName} onValueChange={setStaffName}>
+                  {STAFF_NAMES.map((n) => (
+                    <Picker.Item key={n} label={n} value={n} />
+                  ))}
+                </Picker>
+              </View>
 
               <View style={{ height: 10 }} />
               <Button title="Confirm Outgoing" onPress={confirmOutgoing} />
@@ -185,7 +188,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   name: { fontSize: 16, fontWeight: "600", marginBottom: 6 },
   label: { marginTop: 12, marginBottom: 6, fontWeight: "600" },
-  input: {
-    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fff",
-  },
+  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fff" },
+  pickerWrapper: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", backgroundColor: "#fff" },
 });

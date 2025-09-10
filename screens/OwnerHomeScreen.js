@@ -20,6 +20,7 @@ export default function OwnerHomeScreen({ navigation }) {
         <Text style={styles.buttonText}>Sign Out</Text>
       </TouchableOpacity>
 
+      {/* View / Manage Stock */}
       <TouchableOpacity
         style={styles.buttonGreen}
         onPress={() => navigation.navigate("StockListScreen", { role: "owner" })}
@@ -28,6 +29,7 @@ export default function OwnerHomeScreen({ navigation }) {
         <Text style={styles.buttonText}>View / Manage Stock</Text>
       </TouchableOpacity>
 
+      {/* Add Product */}
       <TouchableOpacity
         style={styles.buttonBlue}
         onPress={() => navigation.navigate("AddItemScreen", { role: "owner" })}
@@ -36,18 +38,19 @@ export default function OwnerHomeScreen({ navigation }) {
         <Text style={styles.buttonText}>Add New Product</Text>
       </TouchableOpacity>
 
-      {/* NEW: Create Master Product (owner catalog) */}
+      {/* Lookup Product (scan & view only) */}
       <TouchableOpacity
         style={styles.buttonPurple}
-        onPress={() => navigation.navigate("AddMasterProductScreen", { role: "owner" })}
+        onPress={() => navigation.navigate("ScanOutgoingScreen", { mode: "lookup", role: "owner" })}
       >
-        <Ionicons name="albums-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Create Master Product</Text>
+        <Ionicons name="search-outline" size={20} color="#fff" />
+        <Text style={styles.buttonText}>Lookup Product</Text>
       </TouchableOpacity>
 
+      {/* Outgoing Stock (deduct) */}
       <TouchableOpacity
         style={styles.buttonOrange}
-        onPress={() => navigation.navigate("ScanOutgoingScreen", { role: "owner" })}
+        onPress={() => navigation.navigate("ScanOutgoingScreen", { role: "owner", mode: "outgoing" })}
       >
         <Ionicons name="qr-code-outline" size={20} color="#fff" />
         <Text style={styles.buttonText}>Scan Outgoing Stock</Text>

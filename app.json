@@ -2,6 +2,7 @@
   "expo": {
     "name": "iMeubelApp",
     "slug": "iMeubelApp",
+    "owner": "gladysganda",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -30,6 +31,7 @@
       "minSdkVersion": 24
     },
     "web": {
+      "output": "single",
       "bundler": "metro",
       "favicon": "./assets/images/favicon.png"
     },
@@ -37,7 +39,10 @@
       [
         "expo-build-properties",
         {
-          "android": { "compileSdkVersion": 35, "targetSdkVersion": 35 }
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
         }
       ],
       [
@@ -48,7 +53,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-barcode-scanner"
     ]
   }
 }

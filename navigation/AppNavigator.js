@@ -20,6 +20,7 @@ import LogOutgoingScreen from "../screens/LogOutgoingScreen";
 import ProductActionScreen from "../screens/ProductActionScreen";
 import AddMasterProductScreen from "../screens/AddMasterProductScreen";
 import PrinterSelectScreen from "../screens/PrinterSelectScreen";
+import LookupProductScreen from "../screens/LookupProductScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -96,6 +97,7 @@ export default function AppNavigator() {
 
         {/* Logs & actions */}
         <Stack.Screen name="StockLogsScreen" component={StockLogsScreen} options={{ title: "Stock Logs" }} />
+        <Stack.Screen name="LookupProductScreen" component={LookupProductScreen} options={{ title: "Lookup Product" }} />
         <Stack.Screen name="ProductActionScreen" component={ProductActionScreen} />
         <Stack.Screen name="LogIncomingScreen" component={LogIncomingScreen} />
         <Stack.Screen name="LogOutgoingScreen" component={LogOutgoingScreen} />

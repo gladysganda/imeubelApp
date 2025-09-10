@@ -1,24 +1,42 @@
-import { Href, Link } from 'expo-router';
-import { openBrowserAsync } from 'expo-web-browser';
-import { type ComponentProps } from 'react';
-import { Platform } from 'react-native';
+// components/ExternalLink.tsx
+import React from 'react';
+import { Platform, Pressable, Text, Linking, GestureResponderEvent } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 
-type Props = Omit<ComponentProps<typeof Link>, 'href'> & { href: Href & string };
+type ExternalLinkProps = {
+  href: string;
+  children: React.ReactNode;
+  style?: any;
+};
 
-export function ExternalLink({ href, ...rest }: Props) {
+export default function ExternalLink({ href, children, style }: ExternalLinkProps) {
+  const onPress = async (e: GestureResponderEvent) => {
+    e?.preventDefault?.();
+    try {
+      if (Platform.OS === 'web') {
+        window.open(href, '_blank', 'noopener,noreferrer');
+      } else {
+        await WebBrowser.openBrowserAsync(href);
+      }
+    } catch {
+      // Fallback
+      Linking.openURL(href);
+    }
+  };
+
+  // Native: pressable
+  if (Platform.OS !== 'web') {
+    return (
+      <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }, style]}>
+        {typeof children === 'string' ? <Text>{children}</Text> : children}
+      </Pressable>
+    );
+  }
+
+  // Web: real <a> for better UX/SEO
   return (
-    <Link
-      target="_blank"
-      {...rest}
-      href={href}
-      onPress={async (event) => {
-        if (Platform.OS !== 'web') {
-          // Prevent the default behavior of linking to the default browser on native.
-          event.preventDefault();
-          // Open the link in an in-app browser.
-          await openBrowserAsync(href);
-        }
-      }}
-    />
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+      {typeof children === 'string' ? <Text style={style}>{children}</Text> : children}
+    </a>
   );
 }

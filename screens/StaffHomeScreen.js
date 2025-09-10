@@ -32,6 +32,14 @@ export default function StaffHomeScreen({ navigation }) {
         <Text style={styles.buttonText}>Scan Incoming Stock</Text>
       </TouchableOpacity> */}
 
+      <TouchableOpacity
+        style={styles.buttonPurple}
+        onPress={() => navigation.navigate("LookupProductScreen", { role: "owner" })}
+      >
+        <Ionicons name="search-outline" size={20} color="#fff" />
+        <Text style={styles.buttonText}>Lookup Product</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.buttonOrange} onPress={() => navigation.navigate("ScanOutgoingScreen", { role: "staff" })}>
         <Ionicons name="qr-code-outline" size={20} color="#fff" />
         <Text style={styles.buttonText}>Scan Outgoing Stock</Text>

@@ -1,125 +1,121 @@
-import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useAuth } from '../AuthContext';
-import { db } from '../firebase';
+// screens/LogIncomingScreen.js  (only additions)
+import ProductSearchPicker from "../components/ProductSearchPicker";
 
 export default function LogIncomingScreen({ route, navigation }) {
-  const { productId } = route.params;
-  const { user } = useAuth();
-  const [product, setProduct] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [quantity, setQuantity] = useState('');
+  const passed = route?.params?.product || null;
+  const productId = route?.params?.productId || passed?.barcode || passed?.id;
+  const staffEmail = auth.currentUser?.email || "Unknown User";
 
-  useEffect(() => {
-    const fetchProduct = async () => {
-      try {
-        const productRef = doc(db, 'products', productId);
-        const productSnap = await getDoc(productRef);
-        if (productSnap.exists()) {
-          setProduct({ id: productSnap.id, ...productSnap.data() });
-        } else {
-          console.log('Product not found.');
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const [quantity, setQuantity] = useState("");
+  const [supplierName, setSupplierName] = useState("");
+  const [note, setNote] = useState("");
+  const [pick, setPick] = useState(null); // when no productId passed
 
-    fetchProduct();
-  }, [productId]);
+  const usingPicker = !productId;
 
-  const handleLogIncoming = async () => {
-    const qty = parseInt(quantity, 10);
-    if (isNaN(qty) || qty <= 0) {
-      Alert.alert('Error', 'Please enter a valid quantity.');
-      return;
-    }
+  const handleIncoming = async () => {
+    const qty = Number(quantity);
+    if (!qty || Number.isNaN(qty) || qty <= 0) return Alert.alert("Invalid quantity","Enter a positive number.");
 
     try {
-      const productRef = doc(db, 'products', productId);
+      // If productId passed → keep your old logic
+      if (!usingPicker) {
+        const productRef = doc(db, "products", String(productId));
+        const snap = await getDoc(productRef);
+        if (!snap.exists()) return Alert.alert("Error","Product not found.");
+        const data = snap.data() || {};
+        const current = Number(data.quantity ?? data.stock ?? 0) || 0;
 
-      // Update stock
-      await updateDoc(productRef, {
-        stock: (product.stock || 0) + qty
-      });
+        await updateDoc(productRef, { quantity: current + qty, updatedAt: serverTimestamp() });
 
-      // Log the incoming stock
-      const logsRef = collection(db, 'stockLogs');
-      await addDoc(logsRef, {
-        productId,
-        productName: product.name,
+        await addDoc(collection(db, "stockLogs"), {
+          type: "incoming",
+          productId: String(productId),
+          productName: data.name || "",
+          category: data.category || null,
+          brand: data.brand || null,
+          sizes: data.sizes || null,
+          quantity: qty,
+          staffName: staffEmail,
+          handledById: auth.currentUser?.uid || null,
+          handledByEmail: staffEmail,
+          supplierName: supplierName.trim() || null,
+          note: note.trim() || null,
+          timestamp: serverTimestamp(),
+        });
+
+        Alert.alert("Success","Incoming stock logged.");
+        navigation.goBack();
+        return;
+      }
+
+      // No product passed → use picker choice, create/increment products doc
+      if (!pick || !pick.selectedSize) return Alert.alert("Missing","Pick product and size.");
+
+      const chosenBarcode = pick?.barcodesBySize?.[pick.selectedSize] || `${Date.now()}`;
+      const pRef = doc(db, "products", String(chosenBarcode));
+      const ps = await getDoc(pRef);
+      const base = {
+        name: pick.displayName,
+        brand: pick.brand,
+        category: pick.category,
+        sizes: pick.selectedSize,
+        barcode: String(chosenBarcode),
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || null,
+        updatedByEmail: staffEmail,
+      };
+      if (ps.exists()) {
+        await updateDoc(pRef, { ...base, quantity: increment(qty) });
+      } else {
+        await setDoc(pRef, { ...base, quantity: qty, createdAt: serverTimestamp() });
+      }
+
+      await addDoc(collection(db, "stockLogs"), {
+        type: "incoming",
+        productId: String(chosenBarcode),
+        productName: base.name,
+        category: base.category,
+        brand: base.brand,
+        sizes: base.sizes,
         quantity: qty,
-        type: 'incoming',
-        handledBy: user.email,
-        timestamp: serverTimestamp()
+        staffName: staffEmail,
+        handledById: auth.currentUser?.uid || null,
+        handledByEmail: staffEmail,
+        supplierName: supplierName.trim() || null,
+        note: note.trim() || null,
+        timestamp: serverTimestamp(),
       });
 
-      Alert.alert('Success', 'Stock added successfully.');
+      Alert.alert("Success","Incoming stock logged.");
       navigation.goBack();
-    } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Failed to log incoming stock.');
+    } catch (e) {
+      console.error("Incoming error:", e);
+      Alert.alert("Error", e?.message || "Failed to log incoming stock.");
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
-  if (!product) {
-    return (
-      <View style={styles.center}>
-        <Text>Product not found</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Incoming Stock for {product.name}</Text>
-      <Text>Current Stock: {product.stock || 0}</Text>
+      {usingPicker ? (
+        <>
+          <ProductSearchPicker value={pick} onChange={setPick} />
+        </>
+      ) : null}
 
-      <TextInput
-        style={styles.input}
-        placeholder="Enter quantity"
-        keyboardType="numeric"
-        value={quantity}
-        onChangeText={setQuantity}
-      />
+      <Text style={styles.label}>Quantity</Text>
+      <TextInput style={styles.input} value={quantity} onChangeText={setQuantity} keyboardType="numeric" placeholder="Enter quantity" />
 
-      <Button title="Add Stock" color="green" onPress={handleLogIncoming} />
+      <Text style={styles.label}>Supplier (optional)</Text>
+      <TextInput style={styles.input} value={supplierName} onChangeText={setSupplierName} placeholder="e.g. PT. Supplier Maju" />
+
+      <Text style={styles.label}>Note (optional)</Text>
+      <TextInput style={[styles.input, { height: 80 }]} value={note} onChangeText={setNote} placeholder="Damage, missing parts, box torn, etc." multiline />
+
+      <View style={{ height: 10 }} />
+      <Button title="Log Incoming Stock" onPress={handleIncoming} />
+      <View style={{ height: 8 }} />
+      <Button title="Back" onPress={() => navigation.goBack()} />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: '#fff'
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    marginVertical: 10,
-    borderRadius: 5
-  }
-});

@@ -1,4 +1,4 @@
-import { BarCodeScanner } from "expo-barcode-scanner";
+import { BarCodeScanner } from 'expo-barcode-scanner';
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Button, StyleSheet, Text, View } from "react-native";

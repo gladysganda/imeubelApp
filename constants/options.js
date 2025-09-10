@@ -2,16 +2,15 @@
 export const CATEGORY_OPTIONS = [
     "Sofa",
     "Meja",
-    "Kursi Makan",
     "Lemari",
     "Matras",
-    "Divan Sandaran",
+    "Divan",
     "Bantal",
     "Guling",
-    "Meja Tamu",
-    "Kursi Kantor",
-    "Meja Belajar",
-    "Lemari Plat",
+    "MejaTamu",
+    "KursiKantor",
+    "MejaBelajar",
+    "LemariPlat",
     "dan-lain-lain",
 ];
 

@@ -2,6 +2,7 @@
   "expo": {
     "name": "iMeubelApp",
     "slug": "iMeubelApp",
+    "owner": "gladysganda",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -19,15 +20,31 @@
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "edgeToEdgeEnabled": true
+      "package": "com.anonymous.iMeubelApp",
+      "minSdkVersion": 24
     },
     "web": {
+      "output": "single",
       "bundler": "metro",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
+        }
+      ],
       [
         "expo-splash-screen",
         {

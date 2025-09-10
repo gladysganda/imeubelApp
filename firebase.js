@@ -1,52 +1,58 @@
 // firebase.js
-
-// Import Firebase core
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
-    getAuth,
-    getReactNativePersistence,
-    initializeAuth,
+  getAuth,
+  getReactNativePersistence,
+  initializeAuth,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+} from "firebase/firestore";
 import { Platform } from "react-native";
 
-
-// Your web app's Firebase configuration
+// ---- Firebase Web config (must match your project) ----
 const firebaseConfig = {
   apiKey: "AIzaSyBodnkyPwEhRjXZ_ZaOsOhJB2TK7tnP5fo",
   authDomain: "imeubel-inventory-2-4b600.firebaseapp.com",
   projectId: "imeubel-inventory-2-4b600",
-  storageBucket: "imeubel-inventory-2-4b600.firebasestorage.app",
+  // If you ever use Storage, Firebase expects .appspot.com here:
+  storageBucket: "imeubel-inventory-2-4b600.appspot.com",
   messagingSenderId: "430514528790",
-  appId: "1:430514528790:web:db6bbf0dcf8abc57000b37"
+  appId: "1:430514528790:web:db6bbf0dcf8abc57000b37",
 };
 
-// Ensure we only initialize once (hot reload safe)
-const appInstance = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// Single app instance (safe across fast refresh)
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-// Auth:
-// - Web -> getAuth(app)
-// - Native (Expo Go) -> initializeAuth(app, AsyncStorage persistence)
-//   Guard with try/catch to avoid “already initialized” on fast refresh
-let authInstance;
+// -------- Auth (persist on native, standard on web) --------
+let auth;
 if (Platform.OS === "web") {
-  authInstance = getAuth(appInstance);
+  auth = getAuth(app);
 } else {
+  // On native, prefer initializeAuth with AsyncStorage persistence.
   try {
-    authInstance = initializeAuth(appInstance, {
+    auth = initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage),
     });
   } catch {
-    // if already initialized (fast refresh), fall back
-    authInstance = getAuth(appInstance);
+    // If already initialized due to fast refresh, fall back to getAuth
+    auth = getAuth(app);
   }
 }
 
-// Firestore
-const dbInstance = getFirestore(appInstance);
+// -------- Firestore (force long polling on native) --------
+let db;
+if (Platform.OS === "web") {
+  db = getFirestore(app);
+} else {
+  // Long polling is more reliable under Expo Go networks
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+    useFetchStreams: false,
+  });
+}
 
-// ✅ Export all three so other files can import what they need
-export const app = appInstance;
-export const auth = authInstance;
-export const db = dbInstance;
+export { app, auth, db };
+

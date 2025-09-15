@@ -73,6 +73,7 @@
     "@types/react": "~19.0.10",
     "@types/react-dom": "^19.1.9",
     "babel-plugin-module-resolver": "^5.0.2",
+    "eas-cli": "^16.18.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~9.2.0",
     "patch-package": "^8.0.0",

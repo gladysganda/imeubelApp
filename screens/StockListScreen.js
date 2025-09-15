@@ -1,6 +1,15 @@
 // screens/StockListScreen.js
 import { Picker } from "@react-native-picker/picker";
-import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+} from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionSheetIOS,
@@ -30,7 +39,7 @@ const platformConfirm = async (title, message) => {
   });
 };
 
-/** Cross‑platform selector:
+/** Cross-platform selector:
  * iOS → ActionSheet (avoids weird picker behavior)
  * Android/Web → Picker
  */
@@ -46,7 +55,9 @@ function SafeSelect({ label, value, onChange, options, placeholder = "Select..."
   }
 
   if (Platform.OS === "ios") {
-    const currentLabel = options.find((o) => o.value === safeValue)?.label || (safeValue ? safeValue : placeholder);
+    const currentLabel =
+      options.find((o) => o.value === safeValue)?.label ||
+      (safeValue ? safeValue : placeholder);
 
     const openSheet = () => {
       const sheetOptions = [placeholder, ...options.map((o) => o.label), "Cancel"];
@@ -61,9 +72,14 @@ function SafeSelect({ label, value, onChange, options, placeholder = "Select..."
     };
 
     return (
-      <TouchableOpacity onPress={openSheet} activeOpacity={0.7} style={[styles.input, styles.selector]}>
+      <TouchableOpacity
+        onPress={openSheet}
+        activeOpacity={0.7}
+        style={[styles.input, styles.selector]}
+      >
         <Text style={{ color: safeValue ? "#111" : "#888" }}>
-          {label ? `${label}: ` : ""}{currentLabel}
+          {label ? `${label}: ` : ""}
+          {currentLabel}
         </Text>
       </TouchableOpacity>
     );
@@ -103,8 +119,9 @@ export default function StockListScreen({ route, navigation }) {
 
   // ---------- Live subscription to products; fallback to inventory ----------
   useEffect(() => {
+    const qy = query(collection(db, "products"), orderBy("name")); // stable order
     const unsubProducts = onSnapshot(
-      collection(db, "products"),
+      qy,
       async (snap) => {
         const prodList = snap.docs.map((d) => ({ id: d.id, __col: "products", ...d.data() }));
         if (prodList.length > 0) {
@@ -137,7 +154,8 @@ export default function StockListScreen({ route, navigation }) {
 
   // keep brand valid when category changes
   useEffect(() => {
-    const allowed = (BRAND_OPTIONS_BY_CATEGORY && BRAND_OPTIONS_BY_CATEGORY[categoryFilter]) || [];
+    const allowed =
+      (BRAND_OPTIONS_BY_CATEGORY && BRAND_OPTIONS_BY_CATEGORY[categoryFilter]) || [];
     if (!categoryFilter) {
       setBrandFilter("");
       return;
@@ -149,13 +167,18 @@ export default function StockListScreen({ route, navigation }) {
 
   // Options for SafeSelect
   const categoryOptions = useMemo(
-    () => (Array.isArray(CATEGORY_OPTIONS) ? CATEGORY_OPTIONS : []).map((c) => ({ label: c, value: c })),
+    () =>
+      (Array.isArray(CATEGORY_OPTIONS) ? CATEGORY_OPTIONS : []).map((c) => ({
+        label: c,
+        value: c,
+      })),
     []
   );
 
   const brandOptions = useMemo(() => {
     if (!categoryFilter) return [];
-    const arr = (BRAND_OPTIONS_BY_CATEGORY && BRAND_OPTIONS_BY_CATEGORY[categoryFilter]) || [];
+    const arr =
+      (BRAND_OPTIONS_BY_CATEGORY && BRAND_OPTIONS_BY_CATEGORY[categoryFilter]) || [];
     return arr.map((b) => ({ label: b, value: b }));
   }, [categoryFilter]);
 
@@ -206,7 +229,10 @@ export default function StockListScreen({ route, navigation }) {
       }
 
       // Confirm
-      const ok = await platformConfirm("Delete", `Delete "${nameForMsg}"?\n\nPath: /${itemCol}/${id}`);
+      const ok = await platformConfirm(
+        "Delete",
+        `Delete "${nameForMsg}"?\n\nPath: /${itemCol}/${id}`
+      );
       if (!ok) return;
 
       // Perform delete
@@ -244,7 +270,7 @@ export default function StockListScreen({ route, navigation }) {
         sizes: item.sizes || "",
         brand: item.brand || "",
       },
-      immediatePrint: false, // just preview; or true to auto-print
+      immediatePrint: false,
     });
   };
 
@@ -300,6 +326,11 @@ export default function StockListScreen({ route, navigation }) {
     const key = `${item.__col}:${item.id}`;
     const checked = selectedIds.has(key);
 
+    const storeQty = Number(item?.qtyByWh?.store ?? 0);
+    const amplasQty = Number(item?.qtyByWh?.amplas ?? 0);
+    const totalQty =
+      Number(item?.quantity ?? storeQty + amplasQty) || storeQty + amplasQty;
+
     return (
       <TouchableOpacity
         activeOpacity={0.9}
@@ -310,8 +341,14 @@ export default function StockListScreen({ route, navigation }) {
           inSelection && checked ? { borderColor: "#2196F3", borderWidth: 2 } : null,
         ]}
       >
+        {/* Per-warehouse line */}
+        <Text>
+          Store: {storeQty}  •  Amplas: {amplasQty}  •  Total: {totalQty}
+        </Text>
+
         <Text style={styles.name}>{item.name || item.product || "Unnamed Product"}</Text>
-        <Text>Stock: {item.quantity ?? item.stock ?? 0}</Text>
+        <Text>Barcode: {item.barcode || item.id}</Text>
+        <Text>Stock: {totalQty}</Text>
         {item.category ? <Text>Category: {item.category}</Text> : null}
         {item.brand ? <Text>Brand: {item.brand}</Text> : null}
         {item.sizes ? <Text>Sizes: {item.sizes}</Text> : null}
@@ -357,6 +394,18 @@ export default function StockListScreen({ route, navigation }) {
                 onPress={() => handleDelete(item.id, item.__col)}
               >
                 <Text style={styles.buttonText}>Delete</Text>
+              </TouchableOpacity>
+
+              {/* Owner: quick transfer shortcut (optional) */}
+              <TouchableOpacity
+                style={[styles.qrButton, { backgroundColor: "#455A64" }]}
+                onPress={() =>
+                  navigation.navigate("TransferStockScreen", {
+                    barcode: item.barcode || item.id,
+                  })
+                }
+              >
+                <Text style={styles.buttonText}>Transfer</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -411,7 +460,7 @@ export default function StockListScreen({ route, navigation }) {
         )}
       </View>
 
-      {/* Search bar (always bordered) */}
+      {/* Search bar */}
       <TextInput
         value={search}
         onChangeText={setSearch}
@@ -491,12 +540,22 @@ const styles = StyleSheet.create({
 
   // inputs / pickers
   input: {
-    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, backgroundColor: "#fff", marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: "#fff",
+    marginBottom: 10,
   },
   disabledBox: { backgroundColor: "#f6f7f9" },
   selector: { justifyContent: "center" },
   pickerWrapper: {
-    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", backgroundColor: "#fff", marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+    marginBottom: 10,
   },
 
   card: {

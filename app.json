@@ -3,6 +3,11 @@
     "name": "iMeubelApp",
     "slug": "iMeubelApp",
     "owner": "gladysganda",
+    "updates": {
+      "enabled": true,
+      "url": "https://u.expo.dev/067d7654-1abb-472b-9fea-87b6a74829b0"
+    },
+    "runtimeVersion": "53.0.0",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -25,7 +30,15 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_SCAN",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
+        "CAMERA",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
       ],
       "package": "com.anonymous.iMeubelApp",
       "minSdkVersion": 24
@@ -55,6 +68,11 @@
         }
       ],
       "expo-barcode-scanner"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "067d7654-1abb-472b-9fea-87b6a74829b0"
+      }
+    }
   }
 }

@@ -3,7 +3,7 @@ const STAFF_NAMES = ["Annie", "Riri", "Yuni", "Agus", "Salman"];
 
 import { Picker } from "@react-native-picker/picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, updateDoc, addDoc, collection } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -14,10 +14,14 @@ import {
   Text,
   TextInput,
   View,
+  ScrollView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../firebase";
+import { WAREHOUSES, DEFAULT_WAREHOUSE_ID } from "../constants/warehouses";
+import { decQtyPatch } from "../utils/inventory";
 
-// simple IDR formatter (fallbacks to plain number if Intl not available)
+// simple IDR formatter
 function fmtIDR(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "-";
@@ -28,13 +32,13 @@ function fmtIDR(n) {
   }
 }
 
-export default function ScanOutgoingScreen({ route, navigation }) {
+export default function ScanOutgoingScreen({ route }) {
   const role = route?.params?.role || "staff";
   const mode = route?.params?.mode || "outgoing"; // "outgoing" | "lookup"
-  const isOwner = role === "owner";
 
   const [clientAddress, setClientAddress] = useState("");
   const [staffName, setStaffName] = useState(STAFF_NAMES[0]);
+  const [warehouseId, setWarehouseId] = useState(DEFAULT_WAREHOUSE_ID);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -100,23 +104,42 @@ export default function ScanOutgoingScreen({ route, navigation }) {
         Alert.alert("Error", "Product not found anymore.");
         return;
       }
-      const curr = Number(snap.data()?.quantity ?? 0) || 0;
+      const data = snap.data() || {};
+      const curr = Number(data.quantity ?? 0) || 0;
+      const whQty = Number(data?.qtyByWh?.[warehouseId] ?? 0);
       if (n > curr) {
-        Alert.alert("Not enough stock", `Available: ${curr}`);
+        Alert.alert("Not enough total stock", `Available total: ${curr}`);
+        return;
+      }
+      if (n > whQty) {
+        Alert.alert("Not enough stock in selected warehouse", `Available in ${warehouseId}: ${whQty}`);
         return;
       }
 
       await updateDoc(ref, {
-        quantity: curr - n,
+        ...decQtyPatch(warehouseId, n),
         lastUpdatedAt: serverTimestamp(),
         lastUpdatedBy: auth.currentUser?.uid || null,
         lastUpdatedByEmail: auth.currentUser?.email || null,
       });
 
-      // If you also log stock-out elsewhere, keep your existing util call here
-      // await logOutgoingStock({...})
+      // log outgoing (simple inline)
+      await addDoc(collection(db, "stockLogs"), {
+        type: "outgoing",
+        productId: ref.id,
+        productName: data.name || "",
+        quantity: n,
+        warehouse: warehouseId,
+        clientName: clientName.trim(),
+        clientAddress: clientAddress.trim() || null,
+        staffName,
+        handledById: auth.currentUser?.uid || null,
+        handledByEmail: auth.currentUser?.email || null,
+        timestamp: serverTimestamp(),
+        note: `Outgoing via scanner (${role})`,
+      });
 
-      Alert.alert("Success", `Deducted ${n} from ${snap.data()?.name || ref.id}`);
+      Alert.alert("Success", `Deducted ${n} from ${data.name || ref.id}`);
       resetScan();
     } catch (e) {
       console.log("Outgoing failed:", e);
@@ -126,17 +149,17 @@ export default function ScanOutgoingScreen({ route, navigation }) {
 
   if (!permission) {
     return (
-      <View style={styles.center}>
+      <SafeAreaView style={styles.center}>
         <Text>Requesting camera permissions…</Text>
-      </View>
+      </SafeAreaView>
     );
   }
   if (!permission.granted) {
     return (
-      <View style={styles.center}>
+      <SafeAreaView style={styles.center}>
         <Text>No camera access.</Text>
         <Button title="Grant Permission" onPress={requestPermission} />
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -152,6 +175,8 @@ export default function ScanOutgoingScreen({ route, navigation }) {
 
     const stock = Number(product.quantity ?? 0) || 0;
     const code = product.barcode || product.id;
+    const storeQty = Number(product?.qtyByWh?.store ?? 0);
+    const amplasQty = Number(product?.qtyByWh?.amplas ?? 0);
 
     return (
       <>
@@ -166,14 +191,13 @@ export default function ScanOutgoingScreen({ route, navigation }) {
         {product.material ? <Text>Material: {product.material}</Text> : null}
         {product.colors ? <Text>Colors: {product.colors}</Text> : null}
         <Text>Barcode: {code}</Text>
-        <Text>Stock: {stock}</Text>
+        <Text>Stock: {stock} (Store: {storeQty} • Amplas: {amplasQty})</Text>
 
-        {/* Harga Modal (buyPrice) visible to OWNER only */}
+        {/* Harga Modal visible to everyone per your request */}
         {product.buyPrice != null ? (
           <Text>Harga Modal: {fmtIDR(product.buyPrice)}</Text>
         ) : null}
-        
-        {/* Lookup mode: just show details & rescan */}
+
         {mode === "lookup" ? (
           <>
             <View style={{ height: 12 }} />
@@ -181,7 +205,6 @@ export default function ScanOutgoingScreen({ route, navigation }) {
           </>
         ) : (
           <>
-            {/* Outgoing form */}
             <Text style={styles.label}>Quantity to deduct</Text>
             <TextInput
               style={styles.input}
@@ -216,6 +239,15 @@ export default function ScanOutgoingScreen({ route, navigation }) {
               </Picker>
             </View>
 
+            <Text style={styles.label}>Take from Warehouse</Text>
+            <View style={styles.pickerWrapper}>
+              <Picker selectedValue={warehouseId} onValueChange={setWarehouseId}>
+                {WAREHOUSES.map((w) => (
+                  <Picker.Item key={w.id} label={w.label} value={w.id} />
+                ))}
+              </Picker>
+            </View>
+
             <View style={{ height: 10 }} />
             <Button title="Confirm Outgoing" onPress={confirmOutgoing} />
             <View style={{ height: 10 }} />
@@ -227,37 +259,37 @@ export default function ScanOutgoingScreen({ route, navigation }) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: mode === "lookup" ? "#fff" : "#000" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      {!scanned ? (
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFillObject}
-          facing="back"
-          onBarcodeScanned={onBarcodeScanned}
-          barcodeScannerSettings={{
-            barcodeTypes: ["qr", "ean13", "ean8", "code128", "upc_a", "upc_e"],
-          }}
-        />
-      ) : (
-        <View style={styles.sheet}>{renderDetails()}</View>
-      )}
-    </KeyboardAvoidingView>
+    <SafeAreaView style={{ flex: 1, backgroundColor: mode === "lookup" ? "#fff" : "#000" }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {!scanned ? (
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFillObject}
+            facing="back"
+            onBarcodeScanned={onBarcodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ["qr", "ean13", "ean8", "code128", "upc_a", "upc_e"],
+            }}
+          />
+        ) : (
+          <ScrollView contentContainerStyle={styles.sheet} keyboardShouldPersistTaps="handled">
+            {renderDetails()}
+          </ScrollView>
+        )}
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  sheet: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  sheet: { flexGrow: 1, backgroundColor: "#fff", padding: 16 },
   title: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   name: { fontSize: 16, fontWeight: "600", marginBottom: 6 },
   label: { marginTop: 12, marginBottom: 6, fontWeight: "600" },
-  input: {
-    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fff",
-  },
-  pickerWrapper: {
-    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", backgroundColor: "#fff",
-  },
+  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fff" },
+  pickerWrapper: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", backgroundColor: "#fff" },
 });

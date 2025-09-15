@@ -21,6 +21,7 @@ import ProductActionScreen from "../screens/ProductActionScreen";
 import AddMasterProductScreen from "../screens/AddMasterProductScreen";
 import PrinterSelectScreen from "../screens/PrinterSelectScreen";
 import LookupProductScreen from "../screens/LookupProductScreen";
+import TransferStockScreen from "@/screens/TransferStockScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -101,7 +102,7 @@ export default function AppNavigator() {
         <Stack.Screen name="ProductActionScreen" component={ProductActionScreen} />
         <Stack.Screen name="LogIncomingScreen" component={LogIncomingScreen} />
         <Stack.Screen name="LogOutgoingScreen" component={LogOutgoingScreen} />
-
+        <Stack.Screen name="TransferStockScreen" component={TransferStockScreen} options={{ title: "Transfer Stock" }}/>
         {/* Printers */}
         <Stack.Screen
           name="PrinterSelectScreen"

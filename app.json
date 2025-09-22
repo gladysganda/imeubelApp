@@ -27,8 +27,7 @@
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "package": "com.anonymous.iMeubelApp",
-      "minSdkVersion": 24
+      "package": "com.anonymous.iMeubelApp"
     },
     "web": {
       "output": "single",
@@ -53,8 +52,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ],
-      "expo-barcode-scanner"
+      ]
     ]
   }
 }

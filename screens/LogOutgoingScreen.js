@@ -4,11 +4,11 @@ import { Alert, Button, Platform, StyleSheet, Text, TextInput, View } from "reac
 import { Picker } from "@react-native-picker/picker";
 import {
   addDoc,
+  arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
-  increment,
   query,
   serverTimestamp,
   updateDoc,
@@ -41,21 +41,10 @@ async function findProductByBarcode(code) {
 }
 
 /**
- * OPTIONAL unique-per-unit support:
- * Lookup a serial in a top-level "units" collection (recommended shape below).
- * If found and status == 'in', return { unit, product }.
- *
- * Suggested "units" fields:
- * - serial: string (document id == serial is even better)
- * - productId: string
- * - productName, brand, category, sizes (cached for convenience)
- * - status: 'in' | 'out'
- * - createdAt, lastMovedAt...
+ * OPTIONAL unique-per-unit support
  */
 async function findUnitSerial(code) {
   const serial = String(code);
-
-  // Try "units/{serial}" first
   const ref = doc(db, "units", serial);
   const snap = await getDoc(ref);
   if (snap.exists()) {
@@ -67,14 +56,19 @@ async function findUnitSerial(code) {
         return { unit: { id: serial, ...u }, product: { id: pSnap.id, data: pSnap.data() } };
       }
     }
-    return null; // found but not in stock or missing parent
+    return null;
   }
 
-  // Fallback query by serial field (if you don't use docId == serial)
-  const q = query(collection(db, "units"), where("serial", "==", serial), where("status", "==", "in"));
+  const q = query(
+    collection(db, "units"),
+    where("serial", "==", serial),
+    where("status", "==", "in")
+  );
   const qs = await getDocs(q);
   let u = null;
-  qs.forEach((d) => { if (!u) u = { id: d.id, ...d.data() }; });
+  qs.forEach((d) => {
+    if (!u) u = { id: d.id, ...d.data() };
+  });
   if (!u || !u.productId) return null;
 
   const pRef = doc(db, "products", String(u.productId));
@@ -86,7 +80,7 @@ async function findUnitSerial(code) {
 
 export default function LogOutgoingScreen({ route, navigation }) {
   const productIdFromRoute = route?.params?.productId || route?.params?.product?.id || "";
-  const [barcodeOrSerial, setBarcodeOrSerial] = useState(""); // allow SKU barcode or unit serial
+  const [barcodeOrSerial, setBarcodeOrSerial] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [clientName, setClientName] = useState("");
   const [clientAddress, setClientAddress] = useState("");
@@ -99,13 +93,13 @@ export default function LogOutgoingScreen({ route, navigation }) {
 
     if (!code) return Alert.alert("Missing", "Scan or type a barcode/serial.");
     if (!clientName.trim()) return Alert.alert("Missing", "Client name is required.");
-    if (Number.isNaN(qty) || qty <= 0) return Alert.alert("Invalid", "Quantity must be a positive number.");
+    if (Number.isNaN(qty) || qty <= 0) return Alert.alert("Invalid", "Quantity must be positive.");
 
     try {
-      // 1) Try as PRODUCT barcode (aggregate stock)
+      // 1) Try as PRODUCT barcode
       let product = await findProductByBarcode(code);
 
-      // 2) If not a product, try as UNIT serial (unique label)
+      // 2) Try as UNIT serial
       let usedUnit = null;
       if (!product) {
         const unitHit = await findUnitSerial(code);
@@ -113,22 +107,20 @@ export default function LogOutgoingScreen({ route, navigation }) {
           Alert.alert("Not found", "No product or unit with that code.");
           return;
         }
-        product = unitHit.product; // {id, data}
-        usedUnit = unitHit.unit;   // {id: serial, ...}
+        product = unitHit.product;
+        usedUnit = unitHit.unit;
       }
 
       const pData = product.data || {};
       const current = Number(pData.quantity ?? pData.stock ?? 0) || 0;
 
-      // If this is a unit-serial flow, force qty = 1 for safety
       const finalQty = usedUnit ? 1 : qty;
-
       if (finalQty > current) {
         Alert.alert("Not enough stock", `Available: ${current}`);
         return;
       }
 
-      // Update product quantity
+      // Update product stock
       await updateDoc(doc(db, "products", product.id), {
         quantity: current - finalQty,
         updatedAt: serverTimestamp(),
@@ -153,19 +145,85 @@ export default function LogOutgoingScreen({ route, navigation }) {
         productId: product.id,
         productName: pData.name || "",
         barcode: pData.barcode || product.id,
-        unitSerial: usedUnit ? usedUnit.id : null,     // captured if per-unit path
+        unitSerial: usedUnit ? usedUnit.id : null,
         category: pData.category || null,
         brand: pData.brand || null,
         sizes: pData.sizes || null,
         quantity: finalQty,
         clientName: clientName.trim(),
         clientAddress: clientAddress.trim() || null,
-        staffName: staffName,                          // who handled
+        staffName,
         handledById: auth.currentUser?.uid || null,
         handledByEmail: auth.currentUser?.email || null,
         note: note.trim() || null,
         timestamp: serverTimestamp(),
       });
+
+      // --- Reservation + SalesOrder sync ---
+      try {
+        const rq = query(
+          collection(db, "reservations"),
+          where("status", "==", "pending"),
+          where("productId", "==", product.id)
+        );
+        const rs = await getDocs(rq);
+
+        let remaining = finalQty;
+        const todayStr = new Date().toISOString().slice(0, 10);
+
+        for (const d of rs.docs) {
+          if (remaining <= 0) break;
+          const r = d.data();
+          const take = Math.min(remaining, Number(r.qty || 0));
+          if (take <= 0) continue;
+
+          await updateDoc(d.ref, {
+            status: "fulfilled",
+            fulfilledQty: take,
+            shipmentDate: todayStr,
+            updatedAt: serverTimestamp(),
+          });
+
+          // Update salesOrder.shipments
+          if (r.orderId) {
+            const orderRef = doc(db, "salesOrders", String(r.orderId));
+            await updateDoc(orderRef, {
+              shipments: arrayUnion({
+                at: serverTimestamp(),
+                by: auth.currentUser?.uid || null,
+                productId: product.id,
+                qty: take,
+                staffName,
+                clientName,
+                clientAddress,
+                sentFromLogOutgoing: true,
+              }),
+              updatedAt: serverTimestamp(),
+            });
+
+            // Check if all reservations are done
+            const rqAll = query(
+              collection(db, "reservations"),
+              where("orderId", "==", String(r.orderId))
+            );
+            const rsAll = await getDocs(rqAll);
+            const stillPending = rsAll.docs.some(
+              (dd) => (dd.data()?.status || "pending") === "pending"
+            );
+            if (!stillPending) {
+              await updateDoc(orderRef, {
+                status: "done",
+                sentDate: todayStr,
+                updatedAt: serverTimestamp(),
+              });
+            }
+          }
+
+          remaining -= take;
+        }
+      } catch (err) {
+        console.log("Reservation sync warn:", err);
+      }
 
       Alert.alert("Success", usedUnit ? "Unit checked-out." : "Outgoing stock logged.");
       navigation.goBack();
@@ -181,7 +239,9 @@ export default function LogOutgoingScreen({ route, navigation }) {
         <Text style={styles.label}>Staff</Text>
         <View style={styles.pickerWrapper}>
           <Picker selectedValue={staffName} onValueChange={setStaffName}>
-            {STAFF_NAMES.map((n) => <Picker.Item key={n} label={n} value={n} />)}
+            {STAFF_NAMES.map((n) => (
+              <Picker.Item key={n} label={n} value={n} />
+            ))}
           </Picker>
         </View>
 
@@ -198,7 +258,7 @@ export default function LogOutgoingScreen({ route, navigation }) {
           • Scan a product barcode (SKU) for normal outgoing, or scan a unique unit serial if you use per-unit labels.
         </Text>
 
-        <Text style={styles.label}>Quantity {/** auto-forced to 1 for serials */}</Text>
+        <Text style={styles.label}>Quantity</Text>
         <TextInput
           style={styles.input}
           value={quantity}

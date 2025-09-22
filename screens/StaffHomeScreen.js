@@ -13,63 +13,110 @@ export default function StaffHomeScreen({ navigation }) {
     }
   };
 
+  const go = (name, params) => navigation.navigate(name, params);
+
+  const tiles = [
+    {
+      label: "View Stock",
+      color: "#4CAF50",
+      icon: "cube-outline",
+      onPress: () => go("StockListScreen", { role: "staff" }),
+    },
+    {
+      label: "Add New Product",
+      color: "#2196F3",
+      icon: "add-circle-outline",
+      onPress: () => go("AddItemScreen", { role: "staff" }),
+    },
+    {
+      label: "Lookup Product",
+      color: "#9C27B0",
+      icon: "search-outline",
+      onPress: () => go("LookUpProductScreen", { mode: "lookup", role: "staff" }),
+    },
+    {
+      label: "Scan Outgoing Stock",
+      color: "#FF9800",
+      icon: "qr-code-outline",
+      onPress: () => go("ScanOutgoingScreen", { role: "staff", mode: "outgoing" }),
+    },
+    {
+      label: "Select Bluetooth Printer",
+      color: "#1565C0",
+      icon: "bluetooth-outline",
+      onPress: () => go("PrinterSelectScreen", { backTo: "PrintLabelScreen" }),
+    },
+    // --- Customer / Sales for staff ---
+    {
+      label: "Customers",
+      color: "#5C6BC0",
+      icon: "people-outline",
+      onPress: () => go("CustomerListScreen"),
+    },
+    {
+      label: "Create Sale",
+      color: "#8BC34A",
+      icon: "cash-outline",
+      onPress: () => go("CreateSaleScreen"),
+    },
+    {
+      label: "Sales List",               // 👈 ADDED
+      color: "#607D8B",
+      icon: "receipt-outline",
+      onPress: () => go("SalesListScreen"),
+    },
+    {
+      label: "Pending Reservations",
+      color: "#795548",
+      icon: "time-outline",
+      onPress: () => go("PendingReservationsScreen"),
+    },
+  ];
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Staff Dashboard</Text>
 
-      <TouchableOpacity style={styles.buttonGreen} onPress={() => navigation.navigate("StockListScreen", { role: "staff" })}>
-        <Ionicons name="cube-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>View Stock</Text>
-      </TouchableOpacity>
+      <View style={styles.grid}>
+        {tiles.map((t) => (
+          <TouchableOpacity
+            key={t.label}
+            style={[styles.tile, { backgroundColor: t.color }]}
+            onPress={t.onPress}
+          >
+            <Ionicons name={t.icon} size={22} color="#fff" />
+            <Text style={styles.tileText}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-      <TouchableOpacity style={styles.buttonBlue} onPress={() => navigation.navigate("AddItemScreen", { role: "staff" })}>
-        <Ionicons name="add-circle-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Add New Product</Text>
-      </TouchableOpacity>
-
-      {/* <TouchableOpacity style={styles.buttonPurple} onPress={() => navigation.navigate("ScanIncomingScreen", { role: "staff" })}>
-        <Ionicons name="barcode-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Scan Incoming Stock</Text>
-      </TouchableOpacity> */}
-
-      <TouchableOpacity
-        style={styles.buttonPurple}
-        onPress={() => navigation.navigate("LookupProductScreen", { role: "owner" })}
-      >
-        <Ionicons name="search-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Lookup Product</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.buttonOrange} onPress={() => navigation.navigate("ScanOutgoingScreen", { role: "staff" })}>
-        <Ionicons name="qr-code-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Scan Outgoing Stock</Text>
-      </TouchableOpacity>
-
-      {/* 👇 NEW: pick a paired Bluetooth printer on Android */}
-      <TouchableOpacity
-        style={[styles.buttonBlue, { backgroundColor: "#1565C0" }]}
-        onPress={() => navigation.navigate("PrinterSelectScreen", { backTo: "PrintLabelScreen" })}
-      >
-        <Ionicons name="bluetooth-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Select Bluetooth Printer</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: 16 }} />
-      <TouchableOpacity style={styles.signOutButton} onPress={signOut}>
-        <Ionicons name="log-out-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Sign Out</Text>
+      <TouchableOpacity style={[styles.tile, styles.signOut]} onPress={signOut}>
+        <Ionicons name="log-out-outline" size={22} color="#fff" />
+        <Text style={styles.tileText}>Sign Out</Text>
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20 },
-  title: { fontSize: 24, fontWeight: "bold", marginBottom: 20 },
-  buttonGreen: { flexDirection: "row", alignItems: "center", backgroundColor: "#4CAF50", padding: 15, borderRadius: 8, marginBottom: 10 },
-  buttonBlue: { flexDirection: "row", alignItems: "center", backgroundColor: "#2196F3", padding: 15, borderRadius: 8, marginBottom: 10 },
-  buttonPurple: { flexDirection: "row", alignItems: "center", backgroundColor: "#9C27B0", padding: 15, borderRadius: 8, marginBottom: 10 },
-  buttonOrange: { flexDirection: "row", alignItems: "center", backgroundColor: "#FF9800", padding: 15, borderRadius: 8, marginBottom: 10 },
-  signOutButton: { flexDirection: "row", alignItems: "center", backgroundColor: "#455A64", padding: 15, borderRadius: 8 },
-  buttonText: { color: "#fff", fontSize: 16, marginLeft: 10 },
+  container: { padding: 16 },
+  title: { fontSize: 24, fontWeight: "bold", marginBottom: 14 },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  tile: {
+    width: "48%",                // two per row, responsive
+    borderRadius: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    elevation: 1,
+  },
+  tileText: { color: "#fff", fontSize: 15, fontWeight: "600", flexShrink: 1 },
+  signOut: { backgroundColor: "#455A64", width: "100%", justifyContent: "center" },
 });

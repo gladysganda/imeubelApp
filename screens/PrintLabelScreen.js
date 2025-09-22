@@ -4,7 +4,7 @@ import { View, Text, Image, Button, Platform, StyleSheet, Alert } from "react-na
 
 // Android share-to-RawBT
 import ViewShot from "react-native-view-shot";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 
 /**

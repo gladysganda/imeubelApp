@@ -1,263 +1,340 @@
 // screens/ScanOutgoingScreen.js
-const STAFF_NAMES = ["Annie", "Riri", "Yuni", "Agus", "Salman"];
-
-import { Picker } from "@react-native-picker/picker";
-import { CameraView, useCameraPermissions } from "expo-camera";
-import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Button,
-  KeyboardAvoidingView,
+  FlatList,
+  Modal,
   Platform,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
+  ScrollView,
 } from "react-native";
-import { auth, db } from "../firebase";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Picker } from "@react-native-picker/picker";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { db, auth } from "../firebase";
+import CustomerAutocomplete from "@/components/CustomerAutocomplete";
+import { decQtyPatch } from "../utils/inventory";
 
-// simple IDR formatter (fallbacks to plain number if Intl not available)
-function fmtIDR(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return "-";
-  try {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(v);
-  } catch {
-    return `Rp ${Math.round(v).toLocaleString("id-ID")}`;
-  }
+// staff names
+const STAFF_NAMES = ["Annie", "Riri", "Yuni", "Agus", "Salman"];
+
+// payment types
+const PAYMENT_TYPES = ["Cash", "BNI", "BRI", "BCA", "BSI", "Mandiri"];
+
+function fmt(n) {
+  const v = Number(n) || 0;
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(v);
 }
 
-export default function ScanOutgoingScreen({ route, navigation }) {
-  const role = route?.params?.role || "staff";
-  const mode = route?.params?.mode || "outgoing"; // "outgoing" | "lookup"
-  const isOwner = role === "owner";
-
-  const [clientAddress, setClientAddress] = useState("");
-  const [staffName, setStaffName] = useState(STAFF_NAMES[0]);
-
+export default function ScanOutgoingScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanned, setScanned] = useState(false);
-  const [product, setProduct] = useState(null);
 
-  const [qty, setQty] = useState("");
-  const [clientName, setClientName] = useState("");
-  const cameraRef = useRef(null);
+  // customer + orders
+  const [customer, setCustomer] = useState(null);
+  const [orders, setOrders] = useState([]);
+  const [orderId, setOrderId] = useState("");
+  const [orderItems, setOrderItems] = useState([]);
+
+  // scanning modal
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanningFor, setScanningFor] = useState(null);
+
+  // scanned/checked state
+  const [scannedItems, setScannedItems] = useState({}); // {productId: {scanned: bool, fromWarehouse: bool}}
+
+  // staff + payment
+  const [staffName, setStaffName] = useState(STAFF_NAMES[0]);
+  const [paymentType, setPaymentType] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
 
   useEffect(() => {
     if (!permission?.granted) requestPermission();
-  }, [permission, requestPermission]);
+  }, [permission]);
 
-  const fetchProductByBarcode = async (barcode) => {
-    const ref = doc(db, "products", String(barcode));
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      return { id: snap.id, ...snap.data() };
-    }
-    return null;
-  };
-
-  const onBarcodeScanned = async ({ data }) => {
-    if (scanned) return;
-    setScanned(true);
-    try {
-      const found = await fetchProductByBarcode(data);
-      if (!found) {
-        Alert.alert("Not found", `No product with barcode: ${data}`);
-        setScanned(false);
+  // load orders when customer chosen
+  useEffect(() => {
+    (async () => {
+      if (!customer?.id) {
+        setOrders([]);
+        setOrderId("");
         return;
       }
-      setProduct(found);
-    } catch (e) {
-      console.log("Scan error:", e);
-      Alert.alert("Error", "Failed to look up product.");
-      setScanned(false);
-    }
-  };
+      const qy = query(
+        collection(db, "salesOrders"),
+        where("customerId", "==", String(customer.id)),
+        where("status", "==", "pending")
+      );
+      const snap = await getDocs(qy);
+      const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setOrders(arr);
+    })();
+  }, [customer]);
 
-  const resetScan = () => {
-    setScanned(false);
-    setProduct(null);
-    setQty("");
-    setClientName("");
-    setClientAddress("");
-  };
-
-  const confirmOutgoing = async () => {
-    const n = Number(qty);
-    if (!n || Number.isNaN(n) || n <= 0) {
-      Alert.alert("Invalid quantity", "Enter a positive number.");
+  // set items when order chosen
+  useEffect(() => {
+    if (!orderId) {
+      setOrderItems([]);
       return;
     }
-    if (!clientName.trim()) {
-      Alert.alert("Missing client name", "Please enter client name.");
-      return;
-    }
+    const found = orders.find((o) => o.id === orderId);
+    setOrderItems(found?.items || []);
+  }, [orderId, orders]);
+
+  const handleBarcodeScanned = async ({ data }) => {
+    setShowScanner(false);
+    if (!scanningFor) return;
     try {
-      const ref = doc(db, "products", String(product.barcode || product.id));
+      const ref = doc(db, "products", String(data));
       const snap = await getDoc(ref);
       if (!snap.exists()) {
-        Alert.alert("Error", "Product not found anymore.");
+        Alert.alert("Not found", `No product with barcode ${data}`);
         return;
       }
-      const curr = Number(snap.data()?.quantity ?? 0) || 0;
-      if (n > curr) {
-        Alert.alert("Not enough stock", `Available: ${curr}`);
+      const p = snap.data();
+      if (p.id !== scanningFor.productId && p.barcode !== scanningFor.barcode) {
+        Alert.alert("Mismatch", "This scan does not match the selected product.");
         return;
       }
-
-      await updateDoc(ref, {
-        quantity: curr - n,
-        lastUpdatedAt: serverTimestamp(),
-        lastUpdatedBy: auth.currentUser?.uid || null,
-        lastUpdatedByEmail: auth.currentUser?.email || null,
-      });
-
-      // If you also log stock-out elsewhere, keep your existing util call here
-      // await logOutgoingStock({...})
-
-      Alert.alert("Success", `Deducted ${n} from ${snap.data()?.name || ref.id}`);
-      resetScan();
+      setScannedItems((m) => ({
+        ...m,
+        [scanningFor.productId]: { scanned: true, fromWarehouse: false },
+      }));
     } catch (e) {
-      console.log("Outgoing failed:", e);
-      Alert.alert("Error", e?.message || "Failed to log outgoing.");
+      Alert.alert("Error", e?.message || "Failed to scan");
     }
   };
 
-  if (!permission) {
-    return (
-      <View style={styles.center}>
-        <Text>Requesting camera permissions…</Text>
-      </View>
-    );
-  }
-  if (!permission.granted) {
-    return (
-      <View style={styles.center}>
-        <Text>No camera access.</Text>
-        <Button title="Grant Permission" onPress={requestPermission} />
-      </View>
-    );
-  }
+  const toggleFromWarehouse = (it) => {
+    setScannedItems((m) => ({
+      ...m,
+      [it.productId]: { scanned: false, fromWarehouse: !(m[it.productId]?.fromWarehouse) },
+    }));
+  };
 
-  const renderDetails = () => {
-    if (!product) {
-      return (
-        <>
-          <Text style={styles.title}>Product not found</Text>
-          <Button title="Scan Again" onPress={resetScan} />
-        </>
-      );
+  const confirmShipment = async () => {
+    if (!orderId) return Alert.alert("Pick order", "Please choose an order first");
+
+    const selectedOrder = orders.find((o) => o.id === orderId);
+    if (!selectedOrder) return;
+
+    try {
+      for (const it of orderItems) {
+        const scan = scannedItems[it.productId];
+        if (!scan?.scanned && !scan?.fromWarehouse) {
+          Alert.alert("Incomplete", `Please scan or mark warehouse for ${it.productName}`);
+          return;
+        }
+
+        // decrement stock only if scanned (from store)
+        if (scan.scanned && !scan.fromWarehouse) {
+          const ref = doc(db, "products", String(it.productId));
+          await updateDoc(ref, {
+            ...decQtyPatch("store", it.qty),
+            lastUpdatedAt: serverTimestamp(),
+            lastUpdatedBy: auth.currentUser?.uid || null,
+            lastUpdatedByEmail: auth.currentUser?.email || null,
+          });
+        }
+
+        // log stock outgoing
+        await addDoc(collection(db, "stockLogs"), {
+          type: "outgoing",
+          productId: it.productId,
+          productName: it.productName,
+          qty: it.qty,
+          staffName,
+          fromWarehouse: !!scan.fromWarehouse,
+          orderId,
+          customerId: customer?.id || null,
+          customerName: customer?.name || "",
+          timestamp: serverTimestamp(),
+        });
+      }
+
+      // update salesOrder
+      const paid = Number(paymentAmount || 0);
+      const newRemaining = Math.max((selectedOrder?.totals?.remaining || 0) - paid, 0);
+
+      await updateDoc(doc(db, "salesOrders", orderId), {
+        status: "done",
+        shipments: arrayUnion({
+          at: serverTimestamp(),
+          by: staffName,
+          items: orderItems,
+          paymentType,
+          paymentAmount: paid,
+        }),
+        "totals.remaining": newRemaining,
+        updatedAt: serverTimestamp(),
+      });
+
+      Alert.alert("Success", "Shipment confirmed and logged");
+      navigation.goBack();
+    } catch (e) {
+      console.log("Shipment error", e);
+      Alert.alert("Error", e?.message || "Failed to confirm shipment");
     }
-
-    const stock = Number(product.quantity ?? 0) || 0;
-    const code = product.barcode || product.id;
-
-    return (
-      <>
-        <Text style={styles.title}>
-          {mode === "lookup" ? "Product Info" : `Outgoing — ${role}`}
-        </Text>
-
-        <Text style={styles.name}>{product.name || "(no name)"}</Text>
-        {product.brand ? <Text>Brand: {product.brand}</Text> : null}
-        {product.category ? <Text>Category: {product.category}</Text> : null}
-        {product.sizes ? <Text>Sizes: {product.sizes}</Text> : null}
-        {product.material ? <Text>Material: {product.material}</Text> : null}
-        {product.colors ? <Text>Colors: {product.colors}</Text> : null}
-        <Text>Barcode: {code}</Text>
-        <Text>Stock: {stock}</Text>
-
-        {/* Harga Modal (buyPrice) visible to OWNER only */}
-        {product.buyPrice != null ? (
-          <Text>Harga Modal: {fmtIDR(product.buyPrice)}</Text>
-        ) : null}
-        
-        {/* Lookup mode: just show details & rescan */}
-        {mode === "lookup" ? (
-          <>
-            <View style={{ height: 12 }} />
-            <Button title="Scan Another" onPress={resetScan} />
-          </>
-        ) : (
-          <>
-            {/* Outgoing form */}
-            <Text style={styles.label}>Quantity to deduct</Text>
-            <TextInput
-              style={styles.input}
-              value={qty}
-              onChangeText={setQty}
-              placeholder="e.g. 1"
-              keyboardType="numeric"
-            />
-
-            <Text style={styles.label}>Client name</Text>
-            <TextInput
-              style={styles.input}
-              value={clientName}
-              onChangeText={setClientName}
-              placeholder="e.g. John Doe"
-            />
-
-            <Text style={styles.label}>Client address</Text>
-            <TextInput
-              style={styles.input}
-              value={clientAddress}
-              onChangeText={setClientAddress}
-              placeholder="Address"
-            />
-
-            <Text style={styles.label}>Staff Name</Text>
-            <View style={styles.pickerWrapper}>
-              <Picker selectedValue={staffName} onValueChange={setStaffName}>
-                {STAFF_NAMES.map((n) => (
-                  <Picker.Item key={n} label={n} value={n} />
-                ))}
-              </Picker>
-            </View>
-
-            <View style={{ height: 10 }} />
-            <Button title="Confirm Outgoing" onPress={confirmOutgoing} />
-            <View style={{ height: 10 }} />
-            <Button title="Scan Another" onPress={resetScan} />
-          </>
-        )}
-      </>
-    );
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: mode === "lookup" ? "#fff" : "#000" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      {!scanned ? (
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFillObject}
-          facing="back"
-          onBarcodeScanned={onBarcodeScanned}
-          barcodeScannerSettings={{
-            barcodeTypes: ["qr", "ean13", "ean8", "code128", "upc_a", "upc_e"],
-          }}
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <Text style={styles.title}>Scan Outgoing Shipment</Text>
+
+        {/* Step 1: Customer */}
+        <Text style={styles.label}>Customer</Text>
+        <CustomerAutocomplete
+          value={customer?.name || ""}
+          onChangeName={(n) => setCustomer((c) => ({ ...c, name: n }))}
+          addressValue={customer?.address || ""}
+          onChangeAddress={(a) => setCustomer((c) => ({ ...c, address: a }))}
+          onPicked={setCustomer}
         />
-      ) : (
-        <View style={styles.sheet}>{renderDetails()}</View>
-      )}
-    </KeyboardAvoidingView>
+
+        {/* Step 2: Orders */}
+        <Text style={styles.label}>Pending Orders</Text>
+        <View style={styles.pickerWrapper}>
+          <Picker selectedValue={orderId} onValueChange={setOrderId}>
+            <Picker.Item label="-- choose order --" value="" />
+            {orders.map((o) => (
+              <Picker.Item
+                key={o.id}
+                label={`#${o.id.slice(0, 6)} • Remain ${fmt(o?.totals?.remaining || 0)}`}
+                value={o.id}
+              />
+            ))}
+          </Picker>
+        </View>
+
+        {/* Order Table */}
+        {orderItems.length > 0 && (
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { flex: 2 }]}>Product</Text>
+              <Text style={styles.th}>Qty</Text>
+              <Text style={styles.th}>Price</Text>
+              <Text style={styles.th}>Subtotal</Text>
+              <Text style={styles.th}>Action</Text>
+            </View>
+            {orderItems.map((it, idx) => {
+              const scan = scannedItems[it.productId] || {};
+              return (
+                <View key={idx} style={styles.tableRow}>
+                  <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>{it.productName}</Text>
+                  <Text style={styles.td}>{it.qty}</Text>
+                  <Text style={styles.td}>{fmt(it.price)}</Text>
+                  <Text style={styles.td}>{fmt(it.subtotal)}</Text>
+                  <View style={{ flex: 2 }}>
+                    {scan.scanned ? (
+                      <Text style={{ color: "green" }}>✅ Scanned</Text>
+                    ) : (
+                      <>
+                        <TouchableOpacity
+                          style={styles.scanBtn}
+                          onPress={() => { setScanningFor(it); setShowScanner(true); }}
+                        >
+                          <Text style={{ color: "#fff" }}>Scan QR</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.checkBtn}
+                          onPress={() => toggleFromWarehouse(it)}
+                        >
+                          <Text style={{ color: scan.fromWarehouse ? "green" : "#444" }}>
+                            {scan.fromWarehouse ? "✓ From Warehouse" : "From Warehouse"}
+                          </Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Step 3: Staff */}
+        <Text style={styles.label}>Staff in Charge</Text>
+        <View style={styles.pickerWrapper}>
+          <Picker selectedValue={staffName} onValueChange={setStaffName}>
+            {STAFF_NAMES.map((n) => <Picker.Item key={n} label={n} value={n} />)}
+          </Picker>
+        </View>
+
+        {/* Step 4: Payment */}
+        <Text style={styles.label}>Payment Type</Text>
+        <View style={styles.pickerWrapper}>
+          <Picker selectedValue={paymentType} onValueChange={setPaymentType}>
+            <Picker.Item label="-- choose --" value="" />
+            {PAYMENT_TYPES.map((p) => <Picker.Item key={p} label={p} value={p} />)}
+          </Picker>
+        </View>
+        <Text style={styles.label}>Payment Amount</Text>
+        <TextInput
+          style={styles.input}
+          value={paymentAmount}
+          onChangeText={setPaymentAmount}
+          keyboardType="numeric"
+          placeholder="0"
+        />
+
+        <View style={{ height: 20 }} />
+        <Button title="Confirm Shipment" onPress={confirmShipment} color="#1976D2" />
+      </ScrollView>
+
+      {/* Scanner Modal */}
+      <Modal visible={showScanner} animationType="slide">
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#000" }}>
+          <CameraView
+            style={{ flex: 1 }}
+            facing="back"
+            onBarcodeScanned={handleBarcodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ["qr", "ean13", "code128", "upc_a"],
+            }}
+          />
+          <Button title="Cancel" onPress={() => setShowScanner(false)} />
+        </SafeAreaView>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  sheet: { flex: 1, backgroundColor: "#fff", padding: 16 },
-  title: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
-  name: { fontSize: 16, fontWeight: "600", marginBottom: 6 },
-  label: { marginTop: 12, marginBottom: 6, fontWeight: "600" },
+  title: { fontSize: 20, fontWeight: "700", marginBottom: 10 },
+  label: { fontWeight: "600", marginTop: 14, marginBottom: 6 },
   input: {
-    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fff",
+    borderWidth: 1, borderColor: "#ccc", borderRadius: 8,
+    padding: 10, backgroundColor: "#fff",
   },
   pickerWrapper: {
-    borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", backgroundColor: "#fff",
+    borderWidth: 1, borderColor: "#ccc", borderRadius: 8,
+    overflow: "hidden", backgroundColor: "#fff",
   },
+  table: { marginTop: 10, borderWidth: 1, borderColor: "#eee", borderRadius: 8 },
+  tableHeader: { flexDirection: "row", backgroundColor: "#fafafa", padding: 6 },
+  th: { flex: 1, fontWeight: "700" },
+  td: { flex: 1, fontSize: 13 },
+  tableRow: { flexDirection: "row", padding: 6, borderTopWidth: 1, borderTopColor: "#eee" },
+  scanBtn: { backgroundColor: "#1976D2", padding: 6, borderRadius: 6, marginBottom: 4 },
+  checkBtn: { padding: 4 },
 });

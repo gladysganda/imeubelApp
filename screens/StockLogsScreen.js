@@ -1,7 +1,17 @@
 // screens/StockLogsScreen.js
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Button,
+  FlatList,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
+} from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { db } from "../firebase";
 
 function parseYMD(s) {
@@ -13,15 +23,31 @@ function parseYMD(s) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function formatYMD(date) {
+  if (!date) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export default function StockLogsScreen() {
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
 
-  // filters
+  // existing filters (kept)
   const [typeFilter, setTypeFilter] = useState("all"); // 'all' | 'incoming' | 'outgoing'
   const [fromDate, setFromDate] = useState("");        // YYYY-MM-DD
   const [toDate, setToDate] = useState("");            // YYYY-MM-DD
   const [specificDate, setSpecificDate] = useState(""); // quick exact date
+
+  // NEW: product name search (case-insensitive)
+  const [searchName, setSearchName] = useState("");
+
+  // NEW: date pickers
+  const [showFromPicker, setShowFromPicker] = useState(false);
+  const [showToPicker, setShowToPicker] = useState(false);
+  const [showSpecificPicker, setShowSpecificPicker] = useState(false);
 
   useEffect(() => {
     const qy = query(collection(db, "stockLogs"), orderBy("timestamp", "desc"));
@@ -44,12 +70,22 @@ export default function StockLogsScreen() {
     let start = parseYMD(fromDate);
     let end = parseYMD(toDate);
     const exact = parseYMD(specificDate);
+    const needle = searchName.trim().toLowerCase();
 
     return logs.filter((item) => {
-      // type filter
+      // type filter (unchanged)
       if (typeFilter !== "all" && item.type !== typeFilter) return false;
 
-      // timestamp normalize
+      // name filter (NEW)
+      if (needle) {
+        const nameLower =
+          (typeof item.productNameLower === "string" && item.productNameLower) ||
+          (typeof item.productName === "string" && item.productName.toLowerCase()) ||
+          "";
+        if (!nameLower.includes(needle)) return false;
+      }
+
+      // timestamp normalize (unchanged)
       const ts =
         item.timestamp?.toDate?.() instanceof Date
           ? item.timestamp.toDate()
@@ -69,7 +105,7 @@ export default function StockLogsScreen() {
         return true;
       }
 
-      // range filter
+      // range filter (unchanged)
       if (start && ts < start) return false;
       if (end) {
         // include the whole end day (23:59:59)
@@ -79,7 +115,7 @@ export default function StockLogsScreen() {
 
       return true;
     });
-  }, [logs, typeFilter, fromDate, toDate, specificDate]);
+  }, [logs, typeFilter, fromDate, toDate, specificDate, searchName]);
 
   if (loading) {
     return (
@@ -94,6 +130,18 @@ export default function StockLogsScreen() {
     <View style={styles.container}>
       {/* Filters */}
       <View style={styles.filters}>
+        {/* NEW: product name search */}
+        <View style={styles.row}>
+          <Text style={styles.filterLabel}>Search product name</Text>
+          <TextInput
+            style={styles.input}
+            value={searchName}
+            onChangeText={setSearchName}
+            placeholder="e.g. Lemari Pakaian"
+            autoCapitalize="none"
+          />
+        </View>
+
         <View style={styles.row}>
           <Text style={styles.filterLabel}>Type</Text>
           <View style={styles.chips}>
@@ -109,34 +157,99 @@ export default function StockLogsScreen() {
           </View>
         </View>
 
+        {/* From Date with picker */}
         <View style={styles.row}>
           <Text style={styles.filterLabel}>From (YYYY-MM-DD)</Text>
-          <TextInput
-            style={styles.input}
-            value={fromDate}
-            onChangeText={(v) => { setFromDate(v); setSpecificDate(""); }}
-            placeholder="e.g. 2025-08-01"
-          />
+          <View style={styles.hstack}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={fromDate}
+              onChangeText={(v) => { setFromDate(v); setSpecificDate(""); }}
+              placeholder="e.g. 2025-08-01"
+            />
+            <View style={{ width: 8 }} />
+            <Button title="📅" onPress={() => setShowFromPicker(true)} />
+            <View style={{ width: 6 }} />
+            <Button title="✖" onPress={() => setFromDate("")} />
+          </View>
+          {showFromPicker && (
+            <DateTimePicker
+              value={parseYMD(fromDate) || new Date()}
+              mode="date"
+              display={Platform.OS === "ios" ? "inline" : "default"}
+              onChange={(_, d) => {
+                setShowFromPicker(false);
+                if (d) {
+                  const ymd = formatYMD(d);
+                  setFromDate(ymd);
+                  setSpecificDate("");
+                }
+              }}
+            />
+          )}
         </View>
 
+        {/* To Date with picker */}
         <View style={styles.row}>
           <Text style={styles.filterLabel}>To (YYYY-MM-DD)</Text>
-          <TextInput
-            style={styles.input}
-            value={toDate}
-            onChangeText={(v) => { setToDate(v); setSpecificDate(""); }}
-            placeholder="e.g. 2025-08-31"
-          />
+          <View style={styles.hstack}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={toDate}
+              onChangeText={(v) => { setToDate(v); setSpecificDate(""); }}
+              placeholder="e.g. 2025-08-31"
+            />
+            <View style={{ width: 8 }} />
+            <Button title="📅" onPress={() => setShowToPicker(true)} />
+            <View style={{ width: 6 }} />
+            <Button title="✖" onPress={() => setToDate("")} />
+          </View>
+          {showToPicker && (
+            <DateTimePicker
+              value={parseYMD(toDate) || new Date()}
+              mode="date"
+              display={Platform.OS === "ios" ? "inline" : "default"}
+              onChange={(_, d) => {
+                setShowToPicker(false);
+                if (d) {
+                  const ymd = formatYMD(d);
+                  setToDate(ymd);
+                  setSpecificDate("");
+                }
+              }}
+            />
+          )}
         </View>
 
+        {/* Specific Date with picker */}
         <View style={styles.row}>
           <Text style={styles.filterLabel}>Specific date</Text>
-          <TextInput
-            style={styles.input}
-            value={specificDate}
-            onChangeText={(v) => { setSpecificDate(v); }}
-            placeholder="e.g. 2025-08-26"
-          />
+          <View style={styles.hstack}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={specificDate}
+              onChangeText={(v) => { setSpecificDate(v); }}
+              placeholder="e.g. 2025-08-26"
+            />
+            <View style={{ width: 8 }} />
+            <Button title="📅" onPress={() => setShowSpecificPicker(true)} />
+            <View style={{ width: 6 }} />
+            <Button title="✖" onPress={() => setSpecificDate("")} />
+          </View>
+          {showSpecificPicker && (
+            <DateTimePicker
+              value={parseYMD(specificDate) || new Date()}
+              mode="date"
+              display={Platform.OS === "ios" ? "inline" : "default"}
+              onChange={(_, d) => {
+                setShowSpecificPicker(false);
+                if (d) {
+                  const ymd = formatYMD(d);
+                  setSpecificDate(ymd);
+                }
+              }}
+            />
+          )}
         </View>
       </View>
 
@@ -189,4 +302,5 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: "#1565C0", color: "#fff" },
   card: { padding: 12, borderRadius: 10, borderWidth: 1, borderColor: "#eee", marginBottom: 10, backgroundColor: "#fff" },
   title: { fontWeight: "700", marginBottom: 6 },
+  hstack: { flexDirection: "row", alignItems: "center" }
 });
